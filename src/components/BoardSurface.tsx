@@ -18,6 +18,10 @@ import {
   Archive,
   Trash2,
   RotateCw,
+  ChevronLeft,
+  ChevronRight,
+  FileOutput,
+  Scissors,
 } from 'lucide-react';
 import { FloatingPaperRibbon } from './FloatingPaperRibbon';
 import {
@@ -27,16 +31,19 @@ import {
   SelectionRange,
 } from './RichTextEditor';
 import { AnnotationLayer } from './AnnotationLayer';
+import { PdfPageCanvas } from './PdfPageCanvas';
 
 export interface BoardSurfaceProps {
   state: CaseState;
   dispatch: React.Dispatch<CaseAction>;
+  assetUrls?: Record<string, string>;
   renderCardChrome?: (card: CardData, isSelected: boolean) => React.ReactNode;
 }
 
 export const BoardSurface: React.FC<BoardSurfaceProps> = ({
   state,
   dispatch,
+  assetUrls = {},
   renderCardChrome,
 }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -86,6 +93,16 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
   const [textSelections, setTextSelections] = useState<
     Record<string, SelectionRange | null>
   >({});
+  const [snipOverlayCardId, setSnipOverlayCardId] = useState<string | null>(
+    null
+  );
+  const [snipDrag, setSnipDrag] = useState<{
+    cardId: string;
+    startX: number;
+    startY: number;
+    currX: number;
+    currY: number;
+  } | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -588,36 +605,358 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
                 </div>
               ))}
 
+              {/* Stacked paper sheets edge effect for PDF Stacks */}
+              {card.kind === 'pdf-stack' && (
+                <>
+                  <div className="pdf-sheet-underlay sheet-1" />
+                  <div className="pdf-sheet-underlay sheet-2" />
+                </>
+              )}
+
               {/* Card Content Body */}
               <div className="card-inner-body">
-                <input
-                  className="card-title-input"
-                  aria-label={`${card.title} title`}
-                  value={card.title}
-                  onChange={(e) =>
-                    dispatch(
-                      caseActions.updateCard(card.id, { title: e.target.value })
-                    )
-                  }
-                />
+                {card.kind === 'photo' ? (
+                  <div className="polaroid-frame">
+                    <img
+                      src={
+                        (card.assetId && assetUrls[card.assetId]) ||
+                        card.assetId ||
+                        'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+                      }
+                      alt={card.title}
+                      draggable={false}
+                    />
+                    <input
+                      className="polaroid-caption-input"
+                      aria-label={`Photo caption for ${card.title}`}
+                      value={card.imageCaption ?? card.title}
+                      onChange={(e) =>
+                        dispatch(
+                          caseActions.updateCard(card.id, {
+                            imageCaption: e.target.value,
+                          })
+                        )
+                      }
+                    />
+                  </div>
+                ) : card.kind === 'pdf-stack' ? (
+                  (() => {
+                    const startPage = card.pdfPageRange?.start ?? 1;
+                    const endPage = Math.max(
+                      startPage,
+                      card.pdfPageRange?.end ?? 1
+                    );
+                    const totalInRange = endPage - startPage + 1;
+                    const currIdx = Math.max(
+                      0,
+                      Math.min(totalInRange - 1, card.currentPageIndex ?? 0)
+                    );
+                    const activePageNumber = startPage + currIdx;
+                    const isSnipping = snipOverlayCardId === card.id;
 
-                <RichTextEditor
-                  card={card}
-                  onChangeText={(plainText, richContent) =>
-                    dispatch(
-                      caseActions.updateCard(card.id, {
-                        plainText,
-                        richContent,
-                      })
-                    )
-                  }
-                  onSelectionChange={(range) =>
-                    setTextSelections((prev) => ({
-                      ...prev,
-                      [card.id]: range,
-                    }))
-                  }
-                />
+                    return (
+                      <>
+                        <input
+                          className="card-title-input"
+                          aria-label={`${card.title} title`}
+                          value={card.title}
+                          onChange={(e) =>
+                            dispatch(
+                              caseActions.updateCard(card.id, {
+                                title: e.target.value,
+                              })
+                            )
+                          }
+                        />
+                        <div className="pdf-stack-viewer">
+                          <div className="pdf-canvas-stage">
+                            <PdfPageCanvas
+                              assetId={card.assetId}
+                              assetUrl={
+                                card.assetId ? assetUrls[card.assetId] : undefined
+                              }
+                              title={card.title}
+                              pageNumber={activePageNumber}
+                              width={Math.max(180, card.width - 28)}
+                              height={Math.max(120, card.height - 96)}
+                              testId={`pdf-page-canvas-${card.id}`}
+                            />
+                            {isSnipping && (
+                              <div
+                                data-testid={`pdf-crop-overlay-${card.id}`}
+                                data-pdf-crop-overlay={card.id}
+                                className="pdf-crop-overlay"
+                                onPointerDown={(e) => {
+                                  if (e.button !== 0) return;
+                                  e.stopPropagation();
+                                  const rect = (
+                                    e.currentTarget as HTMLElement
+                                  ).getBoundingClientRect();
+                                  const { clientX, clientY } = getEventCoords(e);
+                                  const w = rect.width || 200;
+                                  const h = rect.height || 150;
+                                  const nx = Math.max(
+                                    0,
+                                    Math.min(1, (clientX - rect.left) / w)
+                                  );
+                                  const ny = Math.max(
+                                    0,
+                                    Math.min(1, (clientY - rect.top) / h)
+                                  );
+                                  setSnipDrag({
+                                    cardId: card.id,
+                                    startX: nx,
+                                    startY: ny,
+                                    currX: nx,
+                                    currY: ny,
+                                  });
+                                }}
+                                onPointerMove={(e) => {
+                                  if (!snipDrag || snipDrag.cardId !== card.id) {
+                                    return;
+                                  }
+                                  e.stopPropagation();
+                                  const rect = (
+                                    e.currentTarget as HTMLElement
+                                  ).getBoundingClientRect();
+                                  const { clientX, clientY } = getEventCoords(e);
+                                  const w = rect.width || 200;
+                                  const h = rect.height || 150;
+                                  const nx = Math.max(
+                                    0,
+                                    Math.min(1, (clientX - rect.left) / w)
+                                  );
+                                  const ny = Math.max(
+                                    0,
+                                    Math.min(1, (clientY - rect.top) / h)
+                                  );
+                                  setSnipDrag({
+                                    ...snipDrag,
+                                    currX: nx,
+                                    currY: ny,
+                                  });
+                                }}
+                                onPointerUp={(e) => {
+                                  if (!snipDrag || snipDrag.cardId !== card.id) {
+                                    return;
+                                  }
+                                  e.stopPropagation();
+                                  const rect = (
+                                    e.currentTarget as HTMLElement
+                                  ).getBoundingClientRect();
+                                  const { clientX, clientY } = getEventCoords(e);
+                                  const w = rect.width || 200;
+                                  const h = rect.height || 150;
+                                  const hasClient = clientX !== 0 || clientY !== 0;
+                                  const endX = hasClient
+                                    ? Math.max(
+                                        0,
+                                        Math.min(1, (clientX - rect.left) / w)
+                                      )
+                                    : snipDrag.currX;
+                                  const endY = hasClient
+                                    ? Math.max(
+                                        0,
+                                        Math.min(1, (clientY - rect.top) / h)
+                                      )
+                                    : snipDrag.currY;
+
+                                  const x = Math.min(snipDrag.startX, endX);
+                                  const y = Math.min(snipDrag.startY, endY);
+                                  const rw = Math.max(
+                                    0.05,
+                                    Math.abs(endX - snipDrag.startX)
+                                  );
+                                  const rh = Math.max(
+                                    0.05,
+                                    Math.abs(endY - snipDrag.startY)
+                                  );
+
+                                  dispatch(
+                                    caseActions.snipPdfRegion({
+                                      stackCardId: card.id,
+                                      cropRect: {
+                                        x: Number(x.toFixed(3)),
+                                        y: Number(y.toFixed(3)),
+                                        w: Number(Math.min(1 - x, rw).toFixed(3)),
+                                        h: Number(Math.min(1 - y, rh).toFixed(3)),
+                                      },
+                                    })
+                                  );
+                                  setSnipDrag(null);
+                                  setSnipOverlayCardId(null);
+                                }}
+                              >
+                                <span className="pdf-crop-hint">
+                                  Drag rectangle to snip region
+                                </span>
+                                {snipDrag && snipDrag.cardId === card.id && (
+                                  <div
+                                    data-testid="pdf-crop-selection-box"
+                                    className="pdf-crop-selection-box"
+                                    style={{
+                                      left: `${
+                                        Math.min(
+                                          snipDrag.startX,
+                                          snipDrag.currX
+                                        ) * 100
+                                      }%`,
+                                      top: `${
+                                        Math.min(
+                                          snipDrag.startY,
+                                          snipDrag.currY
+                                        ) * 100
+                                      }%`,
+                                      width: `${
+                                        Math.abs(
+                                          snipDrag.currX - snipDrag.startX
+                                        ) * 100
+                                      }%`,
+                                      height: `${
+                                        Math.abs(
+                                          snipDrag.currY - snipDrag.startY
+                                        ) * 100
+                                      }%`,
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          <div
+                            className="pdf-stack-controls"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="pdf-pager">
+                              <button
+                                type="button"
+                                aria-label="Previous PDF page"
+                                title="Previous PDF page"
+                                onClick={() =>
+                                  dispatch(
+                                    caseActions.flipPdfPage(card.id, 'prev')
+                                  )
+                                }
+                              >
+                                <ChevronLeft size={14} />
+                              </button>
+                              <span data-testid="pdf-pager-readout">
+                                Pg {activePageNumber} ({currIdx + 1} /{' '}
+                                {totalInRange})
+                              </span>
+                              <button
+                                type="button"
+                                aria-label="Next PDF page"
+                                title="Next PDF page"
+                                onClick={() =>
+                                  dispatch(
+                                    caseActions.flipPdfPage(card.id, 'next')
+                                  )
+                                }
+                              >
+                                <ChevronRight size={14} />
+                              </button>
+                            </div>
+                            <div className="pdf-extract-actions">
+                              <button
+                                type="button"
+                                className="pdf-action-btn"
+                                aria-label="Pull Page"
+                                title="Pull current page out as its own Card on the Board"
+                                onClick={() =>
+                                  dispatch(
+                                    caseActions.pullPdfPage({
+                                      stackCardId: card.id,
+                                    })
+                                  )
+                                }
+                              >
+                                <FileOutput size={13} />
+                                <span>Pull Page</span>
+                              </button>
+                              <button
+                                type="button"
+                                className={`pdf-action-btn ${
+                                  isSnipping ? 'active' : ''
+                                }`}
+                                aria-label="Snip Region"
+                                title="Snip/Crop a region of this PDF page into a Clipping Card"
+                                onClick={() =>
+                                  setSnipOverlayCardId(
+                                    isSnipping ? null : card.id
+                                  )
+                                }
+                              >
+                                <Scissors size={13} />
+                                <span>Snip Region</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()
+                ) : (
+                  <>
+                    <input
+                      className="card-title-input"
+                      aria-label={`${card.title} title`}
+                      value={card.title}
+                      onChange={(e) =>
+                        dispatch(
+                          caseActions.updateCard(card.id, { title: e.target.value })
+                        )
+                      }
+                    />
+
+                    {card.kind === 'clipping' &&
+                      card.assetId &&
+                      card.sourcePageNumber !== undefined && (
+                        <div
+                          data-testid={`clipping-pdf-preview-${card.id}`}
+                          data-source-page={card.sourcePageNumber}
+                          data-asset-id={card.assetId}
+                          data-crop-rect={
+                            card.cropRect
+                              ? `${card.cropRect.x},${card.cropRect.y},${card.cropRect.w},${card.cropRect.h}`
+                              : undefined
+                          }
+                          className="clipping-pdf-preview"
+                        >
+                          <PdfPageCanvas
+                            assetId={card.assetId}
+                            assetUrl={assetUrls[card.assetId]}
+                            title={card.title}
+                            pageNumber={card.sourcePageNumber}
+                            cropRect={card.cropRect}
+                            width={Math.max(160, card.width - 28)}
+                            height={Math.max(80, Math.round(card.height * 0.48))}
+                            testId={`pdf-page-canvas-${card.id}`}
+                          />
+                        </div>
+                      )}
+
+                    <RichTextEditor
+                      card={card}
+                      onChangeText={(plainText, richContent) =>
+                        dispatch(
+                          caseActions.updateCard(card.id, {
+                            plainText,
+                            richContent,
+                          })
+                        )
+                      }
+                      onSelectionChange={(range) =>
+                        setTextSelections((prev) => ({
+                          ...prev,
+                          [card.id]: range,
+                        }))
+                      }
+                    />
+                  </>
+                )}
               </div>
 
               {/* Card-Bound Hand-Drawn Annotations Layer (Normalized 0..100 percentages) */}

@@ -308,4 +308,108 @@ describe('caseStore — human skew generation & card spawning', () => {
     );
     expect(state.boardAnnotations).toHaveLength(0);
   });
+
+  it('registers deduplicated Assets, flips PDF Stack pages within configured pdfPageRange, pulls a single page into a linked Card, and snips a region into a linked Clipping Card', () => {
+    let state = createInitialCaseState({
+      cards: [],
+      strings: [],
+      assets: [],
+      activeYarnColor: '#A11D21',
+    });
+
+    const pdfAsset = {
+      id: 'asset-harbor-manifest-pdf',
+      filename: 'harbor-manifest.pdf',
+      mimeType: 'application/pdf' as const,
+      relativePath: 'assets/harbor-manifest.pdf',
+      pageCount: 5,
+    };
+
+    // Deduplicated asset registration
+    state = caseReducer(state, caseActions.registerAsset(pdfAsset));
+    state = caseReducer(state, caseActions.registerAsset(pdfAsset));
+    expect(state.assets).toHaveLength(1);
+    expect(state.assets[0]).toEqual(pdfAsset);
+
+    // Spawn a PDF Stack with custom page range 2..4
+    state = caseReducer(
+      state,
+      caseActions.spawnCard({
+        id: 'pdf-stack-1',
+        kind: 'pdf-stack',
+        title: 'harbor-manifest.pdf',
+        assetId: pdfAsset.id,
+        pdfPageRange: { start: 2, end: 4 },
+        currentPageIndex: 0,
+        x: 200,
+        y: 120,
+      })
+    );
+
+    const stack0 = state.cards.find((c) => c.id === 'pdf-stack-1')!;
+    expect(stack0.pdfPageRange).toEqual({ start: 2, end: 4 });
+    expect(stack0.currentPageIndex).toBe(0);
+
+    // Flip prev at start stays at index 0 (page 2)
+    state = caseReducer(state, caseActions.flipPdfPage('pdf-stack-1', 'prev'));
+    expect(state.cards.find((c) => c.id === 'pdf-stack-1')?.currentPageIndex).toBe(0);
+
+    // Flip next advances through range (0 -> 1 -> 2) and clamps at max (index 2 = page 4)
+    state = caseReducer(state, caseActions.flipPdfPage('pdf-stack-1', 'next'));
+    expect(state.cards.find((c) => c.id === 'pdf-stack-1')?.currentPageIndex).toBe(1);
+    state = caseReducer(state, caseActions.flipPdfPage('pdf-stack-1', 'next'));
+    expect(state.cards.find((c) => c.id === 'pdf-stack-1')?.currentPageIndex).toBe(2);
+    state = caseReducer(state, caseActions.flipPdfPage('pdf-stack-1', 'next'));
+    expect(state.cards.find((c) => c.id === 'pdf-stack-1')?.currentPageIndex).toBe(2);
+
+    // Flip prev back to index 1 (which corresponds to page 3)
+    state = caseReducer(state, caseActions.flipPdfPage('pdf-stack-1', 'prev'));
+    expect(state.cards.find((c) => c.id === 'pdf-stack-1')?.currentPageIndex).toBe(1);
+
+    // Pull Page extracts the currently viewed PDF page (page 3) into a linked standalone Card beside the stack
+    state = caseReducer(
+      state,
+      caseActions.pullPdfPage({
+        stackCardId: 'pdf-stack-1',
+        newCardId: 'pulled-page-3',
+      })
+    );
+    expect(state.cards).toHaveLength(2);
+    const originalStack = state.cards.find((c) => c.id === 'pdf-stack-1')!;
+    const pulledCard = state.cards.find((c) => c.id === 'pulled-page-3')!;
+    expect(originalStack.pdfPageRange).toEqual({ start: 2, end: 4 });
+    expect(originalStack.currentPageIndex).toBe(1);
+    expect(pulledCard.assetId).toBe(pdfAsset.id);
+    expect(pulledCard.sourcePageNumber).toBe(3);
+    expect(pulledCard.x).toBeGreaterThan(originalStack.x);
+
+    // Automatically connected by a yarn String
+    expect(state.strings).toHaveLength(1);
+    expect(state.strings[0]).toMatchObject({
+      fromCardId: 'pdf-stack-1',
+      toCardId: 'pulled-page-3',
+      color: '#A11D21',
+    });
+
+    // Snip Region spawns a Clipping Card for the active page with normalized cropRect and yarn String
+    state = caseReducer(
+      state,
+      caseActions.snipPdfRegion({
+        stackCardId: 'pdf-stack-1',
+        newCardId: 'snip-clip-1',
+        cropRect: { x: 0.15, y: 0.25, w: 0.5, h: 0.35 },
+      })
+    );
+    expect(state.cards).toHaveLength(3);
+    const clipCard = state.cards.find((c) => c.id === 'snip-clip-1')!;
+    expect(clipCard.kind).toBe('clipping');
+    expect(clipCard.assetId).toBe(pdfAsset.id);
+    expect(clipCard.sourcePageNumber).toBe(3);
+    expect(clipCard.cropRect).toEqual({ x: 0.15, y: 0.25, w: 0.5, h: 0.35 });
+    expect(state.strings).toHaveLength(2);
+    expect(state.strings[1]).toMatchObject({
+      fromCardId: 'pdf-stack-1',
+      toCardId: 'snip-clip-1',
+    });
+  });
 });

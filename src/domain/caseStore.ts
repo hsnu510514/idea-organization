@@ -430,6 +430,20 @@ export type CaseAction =
   | { type: 'UPDATE_STRING'; payload: { stringId: string; label: string } }
   | { type: 'REMOVE_STRING'; payload: string }
   | { type: 'ADD_ASSET'; payload: AssetRecord }
+  | { type: 'REGISTER_ASSET'; payload: AssetRecord }
+  | { type: 'FLIP_PDF_PAGE'; payload: { cardId: string; direction: 'prev' | 'next' } }
+  | {
+      type: 'PULL_PDF_PAGE';
+      payload: { stackCardId: string; newCardId?: string };
+    }
+  | {
+      type: 'SNIP_PDF_REGION';
+      payload: {
+        stackCardId: string;
+        cropRect: NonNullable<CardData['cropRect']>;
+        newCardId?: string;
+      };
+    }
   | { type: 'SELECT_ANNOTATION'; payload: string | null }
   | { type: 'ADD_ANNOTATION'; payload: { cardId?: string; annotation: AnnotationData } }
   | {
@@ -543,6 +557,26 @@ export const caseActions = {
   addAsset: (asset: AssetRecord): CaseAction => ({
     type: 'ADD_ASSET',
     payload: asset,
+  }),
+  registerAsset: (asset: AssetRecord): CaseAction => ({
+    type: 'REGISTER_ASSET',
+    payload: asset,
+  }),
+  flipPdfPage: (cardId: string, direction: 'prev' | 'next'): CaseAction => ({
+    type: 'FLIP_PDF_PAGE',
+    payload: { cardId, direction },
+  }),
+  pullPdfPage: (payload: { stackCardId: string; newCardId?: string }): CaseAction => ({
+    type: 'PULL_PDF_PAGE',
+    payload,
+  }),
+  snipPdfRegion: (payload: {
+    stackCardId: string;
+    cropRect: NonNullable<CardData['cropRect']>;
+    newCardId?: string;
+  }): CaseAction => ({
+    type: 'SNIP_PDF_REGION',
+    payload,
   }),
   setStrokeWidth: (width: number): CaseAction => ({
     type: 'SET_STROKE_WIDTH',
@@ -892,10 +926,158 @@ export function caseReducer(state: CaseState, action: CaseAction): CaseState {
       };
 
     case 'ADD_ASSET':
+    case 'REGISTER_ASSET': {
+      const existingIdx = state.assets.findIndex(
+        (a) =>
+          a.id === action.payload.id ||
+          a.relativePath === action.payload.relativePath
+      );
+      if (existingIdx !== -1) {
+        const updated = [...state.assets];
+        updated[existingIdx] = { ...updated[existingIdx], ...action.payload };
+        return {
+          ...state,
+          assets: updated,
+        };
+      }
       return {
         ...state,
         assets: [...state.assets, action.payload],
       };
+    }
+
+    case 'FLIP_PDF_PAGE': {
+      const { cardId, direction } = action.payload;
+      return {
+        ...state,
+        cards: state.cards.map((c) => {
+          if (c.id !== cardId || c.kind !== 'pdf-stack') return c;
+          const start = c.pdfPageRange?.start ?? 1;
+          const end = Math.max(start, c.pdfPageRange?.end ?? 1);
+          const totalRangePages = end - start + 1;
+          const currIdx = c.currentPageIndex ?? 0;
+          const nextIdx =
+            direction === 'prev'
+              ? Math.max(0, currIdx - 1)
+              : Math.min(totalRangePages - 1, currIdx + 1);
+          return {
+            ...c,
+            currentPageIndex: nextIdx,
+          };
+        }),
+      };
+    }
+
+    case 'PULL_PDF_PAGE': {
+      const stack = state.cards.find((c) => c.id === action.payload.stackCardId);
+      if (!stack) return state;
+      const startPage = stack.pdfPageRange?.start ?? 1;
+      const currIdx = stack.currentPageIndex ?? 0;
+      const pageNumber = startPage + currIdx;
+      const newCardId = action.payload.newCardId ?? nextId('card-pulled-page');
+      const newPinId = nextId('pin');
+      const maxZ = state.cards.reduce((m, c) => Math.max(m, c.zIndex), 1);
+
+      const newCard: CardData = {
+        id: newCardId,
+        kind: 'clipping',
+        title: `${stack.title} — Page ${pageNumber}`,
+        plainText: `Extracted Page ${pageNumber} from ${stack.title}`,
+        richContent: `Extracted Page ${pageNumber} from ${stack.title}`,
+        x: Math.round(stack.x + stack.width + 52),
+        y: Math.round(stack.y + 12),
+        width: 265,
+        height: 250,
+        skew: generateHumanSkew(),
+        zIndex: maxZ + 1,
+        stashed: false,
+        paperColor: 'white',
+        defaultFontStyle: 'typewriter',
+        defaultFontSize: 'sm',
+        defaultTextColor: '#1E1A17',
+        pins: [{ id: newPinId, rx: 50, ry: 9, color: 'red' }],
+        annotations: [],
+        assetId: stack.assetId,
+        sourcePageNumber: pageNumber,
+      };
+
+      const stackPinId = stack.pins[0]?.id ?? nextId('pin');
+      const linkString: StringData = {
+        id: nextId('str'),
+        fromCardId: stack.id,
+        fromPinId: stackPinId,
+        toCardId: newCardId,
+        toPinId: newPinId,
+        color: state.activeYarnColor,
+        label: `Pg ${pageNumber}`,
+      };
+
+      return {
+        ...state,
+        selectedCardId: newCardId,
+        cards: [...state.cards, newCard],
+        strings: [...state.strings, linkString],
+      };
+    }
+
+    case 'SNIP_PDF_REGION': {
+      const stack = state.cards.find((c) => c.id === action.payload.stackCardId);
+      if (!stack) return state;
+      const startPage = stack.pdfPageRange?.start ?? 1;
+      const currIdx = stack.currentPageIndex ?? 0;
+      const pageNumber = startPage + currIdx;
+      const newCardId = action.payload.newCardId ?? nextId('card-snip-clip');
+      const newPinId = nextId('pin');
+      const maxZ = state.cards.reduce((m, c) => Math.max(m, c.zIndex), 1);
+      const crop = {
+        x: Number(Math.max(0, Math.min(1, action.payload.cropRect.x)).toFixed(3)),
+        y: Number(Math.max(0, Math.min(1, action.payload.cropRect.y)).toFixed(3)),
+        w: Number(Math.max(0.02, Math.min(1, action.payload.cropRect.w)).toFixed(3)),
+        h: Number(Math.max(0.02, Math.min(1, action.payload.cropRect.h)).toFixed(3)),
+      };
+
+      const newCard: CardData = {
+        id: newCardId,
+        kind: 'clipping',
+        title: `${stack.title} — Page ${pageNumber} Clipping`,
+        plainText: `Snipped region from ${stack.title} (Pg ${pageNumber})`,
+        richContent: `Snipped region from ${stack.title} (Pg ${pageNumber})`,
+        x: Math.round(stack.x + stack.width + 52),
+        y: Math.round(stack.y + 42),
+        width: 245,
+        height: 195,
+        skew: generateHumanSkew(),
+        zIndex: maxZ + 1,
+        stashed: false,
+        paperColor: 'cream',
+        defaultFontStyle: 'typewriter',
+        defaultFontSize: 'sm',
+        defaultTextColor: '#1E1A17',
+        pins: [{ id: newPinId, rx: 50, ry: 9, color: 'red' }],
+        annotations: [],
+        assetId: stack.assetId,
+        sourcePageNumber: pageNumber,
+        cropRect: crop,
+      };
+
+      const stackPinId = stack.pins[0]?.id ?? nextId('pin');
+      const linkString: StringData = {
+        id: nextId('str'),
+        fromCardId: stack.id,
+        fromPinId: stackPinId,
+        toCardId: newCardId,
+        toPinId: newPinId,
+        color: state.activeYarnColor,
+        label: `Pg ${pageNumber} Snip`,
+      };
+
+      return {
+        ...state,
+        selectedCardId: newCardId,
+        cards: [...state.cards, newCard],
+        strings: [...state.strings, linkString],
+      };
+    }
 
     case 'SET_STROKE_WIDTH':
       return {

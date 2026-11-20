@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActiveTool,
   CardKind,
@@ -27,6 +27,8 @@ import {
 export interface WoodenPencilTrayProps {
   state: CaseState;
   onSpawnCard: (kind: CardKind) => void;
+  onUploadPhoto?: (file: File) => void;
+  onUploadPdf?: (file: File) => void;
   onSetActiveTool: (tool: ActiveTool) => void;
   onSetYarnColor: (color: YarnColor) => void;
   onAlignAll: () => void;
@@ -36,18 +38,52 @@ export interface WoodenPencilTrayProps {
 export const WoodenPencilTray: React.FC<WoodenPencilTrayProps> = ({
   state,
   onSpawnCard,
+  onUploadPhoto,
+  onUploadPdf,
   onSetActiveTool,
   onSetYarnColor,
   onAlignAll,
   onToggleMode,
 }) => {
   const [trayPinned, setTrayPinned] = useState(true);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div
       data-testid="wooden-pencil-tray-wrap"
       className={`va-wooden-tray-wrap ${trayPinned ? 'is-pinned' : 'auto-hide'}`}
     >
+      <input
+        ref={photoInputRef}
+        data-testid="photo-upload-input"
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/*"
+        className="visually-hidden"
+        aria-label="Upload Photo Print"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && onUploadPhoto) {
+            onUploadPhoto(file);
+          }
+          e.target.value = '';
+        }}
+      />
+      <input
+        ref={pdfInputRef}
+        data-testid="pdf-upload-input"
+        type="file"
+        accept="application/pdf,.pdf"
+        className="visually-hidden"
+        aria-label="Upload PDF Stack"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && onUploadPdf) {
+            onUploadPdf(file);
+          }
+          e.target.value = '';
+        }}
+      />
       <div className="va-wooden-tray">
         {/* Section 1: Spawn Detective Kit Cards */}
         <div className="tray-well">
@@ -96,7 +132,13 @@ export const WoodenPencilTray: React.FC<WoodenPencilTrayProps> = ({
             type="button"
             className="tray-tool-btn"
             aria-label="Spawn Photo Print"
-            onClick={() => onSpawnCard('photo')}
+            onClick={() => {
+              if (onUploadPhoto && photoInputRef.current) {
+                photoInputRef.current.click();
+              } else {
+                onSpawnCard('photo');
+              }
+            }}
             title="Add Resizable Polaroid Photo"
           >
             <Image size={15} />
@@ -106,7 +148,13 @@ export const WoodenPencilTray: React.FC<WoodenPencilTrayProps> = ({
             type="button"
             className="tray-tool-btn"
             aria-label="Spawn PDF Stack"
-            onClick={() => onSpawnCard('pdf-stack')}
+            onClick={() => {
+              if (onUploadPdf && pdfInputRef.current) {
+                pdfInputRef.current.click();
+              } else {
+                onSpawnCard('pdf-stack');
+              }
+            }}
             title="Add Multi-Page PDF Stack"
           >
             <Layers size={15} />
