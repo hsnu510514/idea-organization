@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync, Zippable } from 'fflate';
-import { AssetRecord, CaseState } from '../domain/types';
+import { AssetRecord, CaseState, WorkspaceStorageAdapter } from '../domain/types';
 
 export interface CaseZipAssetEntry {
   relativePath: string;
@@ -133,4 +133,23 @@ export async function unpackCaseZip(zipFile: File | Blob): Promise<UnpackedCaseZ
     boardJsonText,
     assets,
   };
+}
+
+/**
+ * Unpacks a `.case.zip` archive and persists its binary assets and `board.json` into a target `WorkspaceStorageAdapter`.
+ */
+export async function importCaseZipIntoAdapter(
+  adapter: Pick<WorkspaceStorageAdapter, 'saveAsset' | 'saveCase'>,
+  zipFile: File | Blob
+): Promise<CaseState> {
+  const unpacked = await unpackCaseZip(zipFile);
+  const boardData = structuredClone(unpacked.boardData);
+
+  for (const entry of unpacked.assets) {
+    const blob = new Blob([entry.bytes], { type: entry.mimeType });
+    await adapter.saveAsset(boardData.caseSlug, blob, entry.filename);
+  }
+
+  await adapter.saveCase(boardData.caseSlug, boardData);
+  return structuredClone(boardData);
 }

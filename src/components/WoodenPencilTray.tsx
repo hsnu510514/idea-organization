@@ -31,8 +31,10 @@ export interface WoodenPencilTrayProps {
   onUploadPdf?: (file: File) => void;
   onSetActiveTool: (tool: ActiveTool) => void;
   onSetYarnColor: (color: YarnColor) => void;
+  onSetInkColor?: (color: string) => void;
   onAlignAll: () => void;
   onToggleMode: () => void;
+  onSetFrameDimensions?: (width: number, height: number) => void;
 }
 
 export const WoodenPencilTray: React.FC<WoodenPencilTrayProps> = ({
@@ -42,8 +44,10 @@ export const WoodenPencilTray: React.FC<WoodenPencilTrayProps> = ({
   onUploadPdf,
   onSetActiveTool,
   onSetYarnColor,
+  onSetInkColor,
   onAlignAll,
   onToggleMode,
+  onSetFrameDimensions,
 }) => {
   const [trayPinned, setTrayPinned] = useState(true);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -253,6 +257,38 @@ export const WoodenPencilTray: React.FC<WoodenPencilTrayProps> = ({
               />
             ))}
           </div>
+
+          {/* Marker ink color selector */}
+          {onSetInkColor && (
+            <div
+              className="tray-ink-colors"
+              role="group"
+              aria-label="Marker ink color picker"
+              title="Active Marker Ink Color"
+            >
+              {(
+                [
+                  { hex: '#A11D21', name: 'Marker Ink #A11D21' },
+                  { hex: '#1E1A17', name: 'Marker Ink #1E1A17' },
+                  { hex: '#235789', name: 'Marker Ink #235789' },
+                  { hex: '#2B6E46', name: 'Marker Ink #2B6E46' },
+                  { hex: '#5C3A21', name: 'Marker Ink #5C3A21' },
+                ] as const
+              ).map((ink) => (
+                <button
+                  key={ink.hex}
+                  type="button"
+                  className={`ink-color-dot ${
+                    state.activeInkColor === ink.hex ? 'active' : ''
+                  }`}
+                  style={{ backgroundColor: ink.hex }}
+                  title={ink.name}
+                  aria-label={ink.name}
+                  onClick={() => onSetInkColor(ink.hex)}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Section 3: Board Mode & Alignment */}
@@ -285,6 +321,49 @@ export const WoodenPencilTray: React.FC<WoodenPencilTrayProps> = ({
               </>
             )}
           </button>
+          {state.mode === 'bounded' && onSetFrameDimensions && (
+            <div
+              className="tray-frame-size-controls"
+              role="group"
+              aria-label="Bounded frame dimensions"
+            >
+              <label>
+                <span className="visually-hidden">Frame width</span>
+                <input
+                  type="number"
+                  aria-label="Frame width"
+                  className="tray-frame-dim-input"
+                  min={480}
+                  step={20}
+                  value={state.frameWidth}
+                  onChange={(e) =>
+                    onSetFrameDimensions(
+                      Number(e.target.value) || state.frameWidth,
+                      state.frameHeight
+                    )
+                  }
+                />
+              </label>
+              <span>×</span>
+              <label>
+                <span className="visually-hidden">Frame height</span>
+                <input
+                  type="number"
+                  aria-label="Frame height"
+                  className="tray-frame-dim-input"
+                  min={360}
+                  step={20}
+                  value={state.frameHeight}
+                  onChange={(e) =>
+                    onSetFrameDimensions(
+                      state.frameWidth,
+                      Number(e.target.value) || state.frameHeight
+                    )
+                  }
+                />
+              </label>
+            </div>
+          )}
           <button
             type="button"
             className={`tray-lock-btn ${trayPinned ? 'locked' : ''}`}

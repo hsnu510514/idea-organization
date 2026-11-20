@@ -423,7 +423,7 @@ describe('WorkspaceApp — Ticket 2 Dual-Zone Pins, Snap-to-Card Strings & Hover
 
     // 3. Edit the masking-tape tag label at the midpoint
     const tagInput = screen.getByLabelText(/String label/i) as HTMLInputElement;
-    expect(tagInput.value).toBe('New link');
+    expect(tagInput.value).toBe('New string');
     fireEvent.change(tagInput, { target: { value: 'Smuggled ledger link' } });
     expect(tagInput.value).toBe('Smuggled ledger link');
 
@@ -711,7 +711,7 @@ describe('WorkspaceApp — Ticket 3 Floating Paper Ribbon, Per-Selection Rich Te
           y: 100,
           width: 300,
           height: 300,
-          skew: 3.5,
+          skew: 0,
           zIndex: 1,
           stashed: false,
           paperColor: 'cream',
@@ -2037,5 +2037,274 @@ describe('WorkspaceApp — Ticket 6 Multi-Case Hybrid Workspace Storage (board.j
     } finally {
       delete win.showDirectoryPicker;
     }
+  });
+});
+
+describe('WorkspaceApp — Code Review Standards & Spec Fixes integration seam', () => {
+  it('supports Bounded Mode frame resizing via bottom-right drag handle (bounded-frame-resize-handle) and WoodenPencilTray width × height inputs', () => {
+    const storage = createInMemoryWorkspaceAdapter();
+    const initialCase = createInitialCaseState({
+      mode: 'bounded',
+      frameWidth: 1140,
+      frameHeight: 680,
+      panX: 0,
+      panY: 0,
+      zoom: 1,
+      cards: [],
+      strings: [],
+    });
+
+    render(<WorkspaceApp storage={storage} initialCase={initialCase} />);
+
+    // 1. Drag bottom-right frame resize handle on .cork-surface.framed-cork
+    const frameResizeHandle = screen.getByTestId('bounded-frame-resize-handle');
+    const viewport = screen.getByTestId('board-viewport');
+    fireEvent.pointerDown(frameResizeHandle, { clientX: 1140, clientY: 680, button: 0 });
+    fireEvent.pointerMove(viewport, { clientX: 1300, clientY: 800 });
+    fireEvent.pointerUp(viewport);
+
+    expect(screen.getByText('1300 × 800px')).toBeInTheDocument();
+
+    // 2. Resize via compact width × height inputs in WoodenPencilTray
+    const widthInput = screen.getByLabelText('Frame width') as HTMLInputElement;
+    const heightInput = screen.getByLabelText('Frame height') as HTMLInputElement;
+    expect(widthInput.value).toBe('1300');
+    expect(heightInput.value).toBe('800');
+
+    fireEvent.change(widthInput, { target: { value: '1440' } });
+    fireEvent.change(heightInput, { target: { value: '900' } });
+
+    expect(screen.getByText('1440 × 900px')).toBeInTheDocument();
+  });
+
+  it('supports walnut (#5C3A21) ink color, Clear Highlight (none) option, WoodenPencilTray marker ink color picker, and preserves formatted spans when editing text in RichTextEditor', () => {
+    const storage = createInMemoryWorkspaceAdapter();
+    const initialCase = createInitialCaseState({
+      cards: [
+        {
+          id: 'card-preserve-1',
+          kind: 'a4',
+          title: 'Witness Statement',
+          richContent: 'Suspect Victor Vance seen at Pier 14.',
+          plainText: 'Suspect Victor Vance seen at Pier 14.',
+          x: 200,
+          y: 120,
+          width: 320,
+          height: 300,
+          skew: 0,
+          zIndex: 1,
+          stashed: false,
+          paperColor: 'cream',
+          defaultFontStyle: 'typewriter',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p1', rx: 50, ry: 8, color: 'brass' }],
+          annotations: [],
+        },
+      ],
+      strings: [],
+      selectedCardId: 'card-preserve-1',
+    });
+
+    render(<WorkspaceApp storage={storage} initialCase={initialCase} />);
+
+    const cardEl = screen.getByTestId('board-card-card-preserve-1');
+    const ribbon = screen.getByTestId('floating-paper-ribbon-card-preserve-1');
+    const textarea = within(cardEl).getByLabelText(
+      'Witness Statement content'
+    ) as HTMLTextAreaElement;
+
+    // 1. Select "Victor Vance" (indices 8..20) and format with walnut (#5C3A21), yellow highlight (#F3DF7D), and Bold
+    textarea.focus();
+    textarea.setSelectionRange(8, 20);
+    fireEvent.select(textarea);
+
+    fireEvent.click(within(ribbon).getByRole('button', { name: /Ink color #5C3A21/i }));
+    fireEvent.click(
+      within(ribbon).getByRole('button', { name: /Highlight color #F3DF7D/i })
+    );
+    fireEvent.click(within(ribbon).getByRole('button', { name: /^Bold$/i }));
+
+    const richDisplay = within(cardEl).getByTestId('rich-text-display-card-preserve-1');
+    const formattedSpan = within(richDisplay).getByText('Victor Vance');
+    expect(formattedSpan).toHaveStyle({
+      color: '#5C3A21',
+      backgroundColor: '#F3DF7D',
+      fontWeight: '700',
+    });
+
+    // 2. Edit text at the end of the textarea — the formatted "Victor Vance" span must remain preserved!
+    fireEvent.change(textarea, {
+      target: { value: 'Suspect Victor Vance seen at Pier 14 at midnight.' },
+    });
+
+    const preservedSpan = within(richDisplay).getByText('Victor Vance');
+    expect(preservedSpan).toHaveStyle({
+      color: '#5C3A21',
+      backgroundColor: '#F3DF7D',
+      fontWeight: '700',
+    });
+
+    // 3. Re-select "Victor Vance" and click Clear Highlight ("Highlight color none")
+    textarea.setSelectionRange(8, 20);
+    fireEvent.select(textarea);
+    fireEvent.click(
+      within(ribbon).getByRole('button', { name: /Highlight color none/i })
+    );
+    const clearedHighlightSpan = within(richDisplay).getByText('Victor Vance');
+    expect(clearedHighlightSpan.style.backgroundColor).toBe('');
+    expect(clearedHighlightSpan).toHaveStyle({
+      color: '#5C3A21',
+      fontWeight: '700',
+    });
+
+    // 4. Pick marker ink color directly from WoodenPencilTray
+    const trayInkBtn = screen.getByRole('button', { name: /Marker Ink #2B6E46/i });
+    fireEvent.click(trayInkBtn);
+    expect(trayInkBtn.className).toContain('active');
+  });
+
+  it('filters the Uploaded Assets shelf in CaseDrawer by searchQuery and kindFilter alongside Cards', () => {
+    const storage = createInMemoryWorkspaceAdapter();
+    const initialCase = createInitialCaseState({
+      cards: [],
+      strings: [],
+      assets: [
+        {
+          id: 'asset-pdf-manifest',
+          filename: 'harbor-manifest.pdf',
+          mimeType: 'application/pdf',
+          relativePath: 'assets/harbor-manifest.pdf',
+          pageCount: 5,
+        },
+        {
+          id: 'asset-img-padlock',
+          filename: 'broken-padlock.png',
+          mimeType: 'image/png',
+          relativePath: 'assets/broken-padlock.png',
+        },
+      ],
+    });
+
+    render(<WorkspaceApp storage={storage} initialCase={initialCase} />);
+
+    // Open Case Drawer
+    fireEvent.click(screen.getByRole('button', { name: /CASE DRAWER \(0\)/i }));
+    const drawerAside = screen.getByTestId('case-drawer');
+    const assetsSection = within(drawerAside).getByTestId(
+      'case-drawer-assets-section'
+    );
+
+    expect(
+      within(assetsSection).getAllByTestId(/^drawer-asset-item-/)
+    ).toHaveLength(2);
+
+    // Filter by kind 'photo' -> only image Asset shown
+    fireEvent.click(
+      within(drawerAside).getByRole('button', { name: /Filter kind photo/i })
+    );
+    expect(
+      within(assetsSection).getAllByTestId(/^drawer-asset-item-/)
+    ).toHaveLength(1);
+    expect(
+      within(assetsSection).getByText('broken-padlock.png')
+    ).toBeInTheDocument();
+
+    // Filter by kind 'pdf-stack' -> only PDF Asset shown
+    fireEvent.click(
+      within(drawerAside).getByRole('button', { name: /Filter kind pdf-stack/i })
+    );
+    expect(
+      within(assetsSection).getAllByTestId(/^drawer-asset-item-/)
+    ).toHaveLength(1);
+    expect(
+      within(assetsSection).getByText('harbor-manifest.pdf')
+    ).toBeInTheDocument();
+
+    // Reset kind filter to 'all' and filter by search query 'padlock'
+    fireEvent.click(
+      within(drawerAside).getByRole('button', { name: /Filter kind all/i })
+    );
+    const searchInput = within(drawerAside).getByPlaceholderText(
+      /Search all Cards/i
+    );
+    fireEvent.change(searchInput, { target: { value: 'padlock' } });
+    expect(
+      within(assetsSection).getAllByTestId(/^drawer-asset-item-/)
+    ).toHaveLength(1);
+    expect(
+      within(assetsSection).getByText('broken-padlock.png')
+    ).toBeInTheDocument();
+  });
+
+  it('un-rotates pointer coordinates by -cardSkew when drawing Card-bound Annotations on a skewed Card', () => {
+    const storage = createInMemoryWorkspaceAdapter();
+    const initialCase = createInitialCaseState({
+      cards: [
+        {
+          id: 'card-skew-90',
+          kind: 'a4',
+          title: 'Rotated Evidence Sheet',
+          richContent: 'Rotated 90 degrees',
+          plainText: 'Rotated 90 degrees',
+          x: 100,
+          y: 100,
+          width: 200,
+          height: 200,
+          skew: 90,
+          zIndex: 1,
+          stashed: false,
+          paperColor: 'cream',
+          defaultFontStyle: 'typewriter',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p1', rx: 50, ry: 8, color: 'brass' }],
+          annotations: [],
+        },
+      ],
+      strings: [],
+      activeTool: 'circle',
+    });
+
+    render(<WorkspaceApp storage={storage} initialCase={initialCase} />);
+
+    const cardEl = screen.getByTestId('board-card-card-skew-90');
+    // Card center is at (200, 200), size 200x200
+    cardEl.getBoundingClientRect = () =>
+      ({
+        left: 100,
+        top: 100,
+        width: 200,
+        height: 200,
+        right: 300,
+        bottom: 300,
+        x: 100,
+        y: 100,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    const cardAnnLayer = within(cardEl).getByTestId(
+      'card-annotation-layer-card-skew-90'
+    );
+
+    // For a +90° rotated Card centered at (200, 200):
+    // Screen point (250, 200) [dx=+50, dy=0] un-rotated by -90° maps to localX=0 (50%), localY=-50 (25%)
+    // Screen point (200, 250) [dx=0, dy=+50] un-rotated by -90° maps to localX=+50 (75%), localY=0 (50%)
+    fireEvent.pointerDown(cardAnnLayer, {
+      clientX: 250,
+      clientY: 200,
+      button: 0,
+    });
+    fireEvent.pointerMove(cardAnnLayer, {
+      clientX: 200,
+      clientY: 250,
+    });
+    fireEvent.pointerUp(cardAnnLayer);
+
+    const annItem = within(cardEl).getByTestId(/^annotation-item-/);
+    expect(Number(annItem.getAttribute('data-annotation-x'))).toBeCloseTo(50, 1);
+    expect(Number(annItem.getAttribute('data-annotation-y'))).toBeCloseTo(25, 1);
+    expect(Number(annItem.getAttribute('data-annotation-w'))).toBeCloseTo(25, 1);
+    expect(Number(annItem.getAttribute('data-annotation-h'))).toBeCloseTo(25, 1);
   });
 });

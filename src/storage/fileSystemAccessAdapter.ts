@@ -7,10 +7,10 @@ import {
 import { createInitialCaseState } from '../domain/caseStore';
 import {
   formatBoardJson,
+  importCaseZipIntoAdapter,
   inferAssetMimeType,
   packCaseZip,
   readBlobAsBytes,
-  unpackCaseZip,
 } from './caseZip';
 import { cachePdfBinary } from '../components/PdfPageCanvas';
 
@@ -228,16 +228,7 @@ export function createFileSystemAccessAdapter(
     },
 
     async importCaseZip(zipFile: File | Blob): Promise<CaseState> {
-      const unpacked = await unpackCaseZip(zipFile);
-      const boardData = unpacked.boardData;
-
-      for (const entry of unpacked.assets) {
-        const blob = new Blob([entry.bytes], { type: entry.mimeType });
-        await this.saveAsset(boardData.caseSlug, blob, entry.filename);
-      }
-
-      await this.saveCase(boardData.caseSlug, boardData);
-      return boardData;
+      return importCaseZipIntoAdapter(this, zipFile);
     },
   };
 }

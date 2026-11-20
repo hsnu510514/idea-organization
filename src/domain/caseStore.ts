@@ -34,6 +34,103 @@ export function generateHumanSkew(rng: () => number = Math.random): number {
   return Math.max(-5.5, Math.min(5.5, raw));
 }
 
+/**
+ * Extract normalized clientX / clientY pointer coordinates from a React or native mouse/pointer event.
+ */
+export function getPointerClientCoords(e: {
+  clientX?: number;
+  clientY?: number;
+  nativeEvent?: unknown;
+}): { clientX: number; clientY: number } {
+  const native = e.nativeEvent as Record<string, number | undefined> | undefined;
+  const clientX =
+    typeof e.clientX === 'number' && !Number.isNaN(e.clientX)
+      ? e.clientX
+      : native?.clientX ?? native?.pageX ?? 0;
+  const clientY =
+    typeof e.clientY === 'number' && !Number.isNaN(e.clientY)
+      ? e.clientY
+      : native?.clientY ?? native?.pageY ?? 0;
+  return { clientX, clientY };
+}
+
+function spawnDerivedPdfClippingCard(
+  state: CaseState,
+  options: {
+    stackCardId: string;
+    newCardId?: string;
+    defaultIdPrefix: string;
+    cropRect?: NonNullable<CardData['cropRect']>;
+  }
+): CaseState {
+  const stack = state.cards.find((c) => c.id === options.stackCardId);
+  if (!stack) return state;
+  const startPage = stack.pdfPageRange?.start ?? 1;
+  const currIdx = stack.currentPageIndex ?? 0;
+  const pageNumber = startPage + currIdx;
+  const newCardId = options.newCardId ?? nextId(options.defaultIdPrefix);
+  const newPinId = nextId('pin');
+  const maxZ = state.cards.reduce((m, c) => Math.max(m, c.zIndex), 1);
+
+  const isSnip = Boolean(options.cropRect);
+  const crop = options.cropRect
+    ? {
+        x: Number(Math.max(0, Math.min(1, options.cropRect.x)).toFixed(3)),
+        y: Number(Math.max(0, Math.min(1, options.cropRect.y)).toFixed(3)),
+        w: Number(Math.max(0.02, Math.min(1, options.cropRect.w)).toFixed(3)),
+        h: Number(Math.max(0.02, Math.min(1, options.cropRect.h)).toFixed(3)),
+      }
+    : undefined;
+
+  const text = isSnip
+    ? `Snipped region from ${stack.title} (Pg ${pageNumber})`
+    : `Extracted Page ${pageNumber} from ${stack.title}`;
+
+  const newCard: CardData = {
+    id: newCardId,
+    kind: 'clipping',
+    title: isSnip
+      ? `${stack.title} — Page ${pageNumber} Clipping`
+      : `${stack.title} — Page ${pageNumber}`,
+    plainText: text,
+    richContent: text,
+    x: Math.round(stack.x + stack.width + 52),
+    y: Math.round(stack.y + (isSnip ? 42 : 12)),
+    width: isSnip ? 245 : 265,
+    height: isSnip ? 195 : 250,
+    skew: generateHumanSkew(),
+    zIndex: maxZ + 1,
+    stashed: false,
+    paperColor: isSnip ? 'cream' : 'white',
+    defaultFontStyle: 'typewriter',
+    defaultFontSize: 'sm',
+    defaultTextColor: '#1E1A17',
+    pins: [{ id: newPinId, rx: 50, ry: 9, color: 'red' }],
+    annotations: [],
+    assetId: stack.assetId,
+    sourcePageNumber: pageNumber,
+    ...(crop ? { cropRect: crop } : {}),
+  };
+
+  const stackPinId = stack.pins[0]?.id ?? nextId('pin');
+  const connectedString: StringData = {
+    id: nextId('str'),
+    fromCardId: stack.id,
+    fromPinId: stackPinId,
+    toCardId: newCardId,
+    toPinId: newPinId,
+    color: state.activeYarnColor,
+    label: isSnip ? `Pg ${pageNumber} Snip` : `Pg ${pageNumber}`,
+  };
+
+  return {
+    ...state,
+    selectedCardId: newCardId,
+    cards: [...state.cards, newCard],
+    strings: [...state.strings, connectedString],
+  };
+}
+
 export function clampZoom(zoom: number): number {
   return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(zoom.toFixed(2))));
 }
@@ -680,25 +777,11 @@ export function caseReducer(state: CaseState, action: CaseAction): CaseState {
       const visibleCards = state.cards.filter((c) => !c.stashed);
       if (visibleCards.length === 0) return state;
       const padding = 80;
-      const minX = Math.min(0, ...visibleCards.map((c) => c.x));
-      const minY = Math.min(0, ...visibleCards.map((c) => c.y));
-      const shiftX = minX < 0 ? -minX + padding : 0;
-      const shiftY = minY < 0 ? -minY + padding : 0;
-
-      const shiftedCards =
-        shiftX !== 0 || shiftY !== 0
-          ? state.cards.map((c) =>
-              c.stashed ? c : { ...c, x: c.x + shiftX, y: c.y + shiftY }
-            )
-          : state.cards;
-
-      const updatedVisible = shiftedCards.filter((c) => !c.stashed);
-      const maxX = Math.max(...updatedVisible.map((c) => c.x + c.width)) + padding;
-      const maxY = Math.max(...updatedVisible.map((c) => c.y + c.height)) + padding;
+      const maxX = Math.max(...visibleCards.map((c) => c.x + c.width)) + padding;
+      const maxY = Math.max(...visibleCards.map((c) => c.y + c.height)) + padding;
 
       return {
         ...state,
-        cards: shiftedCards,
         frameWidth: Math.max(state.frameWidth, 960, Math.round(maxX)),
         frameHeight: Math.max(state.frameHeight, 640, Math.round(maxY)),
       };
@@ -1010,116 +1093,20 @@ export function caseReducer(state: CaseState, action: CaseAction): CaseState {
       };
     }
 
-    case 'PULL_PDF_PAGE': {
-      const stack = state.cards.find((c) => c.id === action.payload.stackCardId);
-      if (!stack) return state;
-      const startPage = stack.pdfPageRange?.start ?? 1;
-      const currIdx = stack.currentPageIndex ?? 0;
-      const pageNumber = startPage + currIdx;
-      const newCardId = action.payload.newCardId ?? nextId('card-pulled-page');
-      const newPinId = nextId('pin');
-      const maxZ = state.cards.reduce((m, c) => Math.max(m, c.zIndex), 1);
+    case 'PULL_PDF_PAGE':
+      return spawnDerivedPdfClippingCard(state, {
+        stackCardId: action.payload.stackCardId,
+        newCardId: action.payload.newCardId,
+        defaultIdPrefix: 'card-pulled-page',
+      });
 
-      const newCard: CardData = {
-        id: newCardId,
-        kind: 'clipping',
-        title: `${stack.title} — Page ${pageNumber}`,
-        plainText: `Extracted Page ${pageNumber} from ${stack.title}`,
-        richContent: `Extracted Page ${pageNumber} from ${stack.title}`,
-        x: Math.round(stack.x + stack.width + 52),
-        y: Math.round(stack.y + 12),
-        width: 265,
-        height: 250,
-        skew: generateHumanSkew(),
-        zIndex: maxZ + 1,
-        stashed: false,
-        paperColor: 'white',
-        defaultFontStyle: 'typewriter',
-        defaultFontSize: 'sm',
-        defaultTextColor: '#1E1A17',
-        pins: [{ id: newPinId, rx: 50, ry: 9, color: 'red' }],
-        annotations: [],
-        assetId: stack.assetId,
-        sourcePageNumber: pageNumber,
-      };
-
-      const stackPinId = stack.pins[0]?.id ?? nextId('pin');
-      const linkString: StringData = {
-        id: nextId('str'),
-        fromCardId: stack.id,
-        fromPinId: stackPinId,
-        toCardId: newCardId,
-        toPinId: newPinId,
-        color: state.activeYarnColor,
-        label: `Pg ${pageNumber}`,
-      };
-
-      return {
-        ...state,
-        selectedCardId: newCardId,
-        cards: [...state.cards, newCard],
-        strings: [...state.strings, linkString],
-      };
-    }
-
-    case 'SNIP_PDF_REGION': {
-      const stack = state.cards.find((c) => c.id === action.payload.stackCardId);
-      if (!stack) return state;
-      const startPage = stack.pdfPageRange?.start ?? 1;
-      const currIdx = stack.currentPageIndex ?? 0;
-      const pageNumber = startPage + currIdx;
-      const newCardId = action.payload.newCardId ?? nextId('card-snip-clip');
-      const newPinId = nextId('pin');
-      const maxZ = state.cards.reduce((m, c) => Math.max(m, c.zIndex), 1);
-      const crop = {
-        x: Number(Math.max(0, Math.min(1, action.payload.cropRect.x)).toFixed(3)),
-        y: Number(Math.max(0, Math.min(1, action.payload.cropRect.y)).toFixed(3)),
-        w: Number(Math.max(0.02, Math.min(1, action.payload.cropRect.w)).toFixed(3)),
-        h: Number(Math.max(0.02, Math.min(1, action.payload.cropRect.h)).toFixed(3)),
-      };
-
-      const newCard: CardData = {
-        id: newCardId,
-        kind: 'clipping',
-        title: `${stack.title} — Page ${pageNumber} Clipping`,
-        plainText: `Snipped region from ${stack.title} (Pg ${pageNumber})`,
-        richContent: `Snipped region from ${stack.title} (Pg ${pageNumber})`,
-        x: Math.round(stack.x + stack.width + 52),
-        y: Math.round(stack.y + 42),
-        width: 245,
-        height: 195,
-        skew: generateHumanSkew(),
-        zIndex: maxZ + 1,
-        stashed: false,
-        paperColor: 'cream',
-        defaultFontStyle: 'typewriter',
-        defaultFontSize: 'sm',
-        defaultTextColor: '#1E1A17',
-        pins: [{ id: newPinId, rx: 50, ry: 9, color: 'red' }],
-        annotations: [],
-        assetId: stack.assetId,
-        sourcePageNumber: pageNumber,
-        cropRect: crop,
-      };
-
-      const stackPinId = stack.pins[0]?.id ?? nextId('pin');
-      const linkString: StringData = {
-        id: nextId('str'),
-        fromCardId: stack.id,
-        fromPinId: stackPinId,
-        toCardId: newCardId,
-        toPinId: newPinId,
-        color: state.activeYarnColor,
-        label: `Pg ${pageNumber} Snip`,
-      };
-
-      return {
-        ...state,
-        selectedCardId: newCardId,
-        cards: [...state.cards, newCard],
-        strings: [...state.strings, linkString],
-      };
-    }
+    case 'SNIP_PDF_REGION':
+      return spawnDerivedPdfClippingCard(state, {
+        stackCardId: action.payload.stackCardId,
+        newCardId: action.payload.newCardId,
+        defaultIdPrefix: 'card-snip-clip',
+        cropRect: action.payload.cropRect,
+      });
 
     case 'SET_STROKE_WIDTH':
       return {

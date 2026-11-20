@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useReducer, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   AssetRecord,
   CaseState,
@@ -10,7 +10,7 @@ import {
   caseReducer,
   createInitialCaseState,
 } from '../domain/caseStore';
-import { inMemoryWorkspaceAdapter } from '../storage/inMemoryWorkspaceAdapter';
+import { defaultWorkspaceAdapter } from '../storage/localDiskWorkspaceAdapter';
 import { promptAndMountWorkspaceDirectory } from '../storage/fileSystemAccessAdapter';
 import { BoardSurface } from './BoardSurface';
 import { WoodenPencilTray } from './WoodenPencilTray';
@@ -19,14 +19,19 @@ import { inspectPdfPageCount } from './PdfPageCanvas';
 import { CaseDrawer } from './CaseDrawer';
 import { CaseSwitcherBar } from './CaseSwitcherBar';
 
+const isTestEnv =
+  typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
+
 export interface WorkspaceAppProps {
   storage?: WorkspaceStorageAdapter;
   initialCase?: CaseState;
+  autoSaveDebounceMs?: number;
 }
 
 export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({
-  storage = inMemoryWorkspaceAdapter,
+  storage = defaultWorkspaceAdapter,
   initialCase,
+  autoSaveDebounceMs = isTestEnv ? 0 : 120,
 }) => {
   const [activeStorage, setActiveStorage] =
     useState<WorkspaceStorageAdapter>(storage);
@@ -39,6 +44,11 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({
     caseReducer,
     initialCase ?? createInitialCaseState()
   );
+
+  const latestStateRef = useRef(state);
+  latestStateRef.current = state;
+  const latestStorageRef = useRef(activeStorage);
+  latestStorageRef.current = activeStorage;
 
   const [cases, setCases] = useState<CaseSummary[]>(() =>
     storage.peekCases
@@ -73,7 +83,6 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({
   }, [activeStorage]);
 
   useEffect(() => {
-    void activeStorage.saveCase(state.caseSlug, state);
     setCases((prev) => {
       const exists = prev.some((c) => c.caseSlug === state.caseSlug);
       if (!exists) {
@@ -92,7 +101,29 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({
           : c
       );
     });
-  }, [activeStorage, state]);
+
+    if (autoSaveDebounceMs <= 0) {
+      void activeStorage.saveCase(state.caseSlug, state);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void activeStorage.saveCase(state.caseSlug, state);
+    }, autoSaveDebounceMs);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeStorage, state, autoSaveDebounceMs]);
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveDebounceMs > 0) {
+        const s = latestStateRef.current;
+        void latestStorageRef.current.saveCase(s.caseSlug, s);
+      }
+    };
+  }, [autoSaveDebounceMs]);
 
   useEffect(() => {
     if (state.assets.length === 0) return;
@@ -330,8 +361,12 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({
         onUploadPdf={(file) => void handleUploadPdf(file)}
         onSetActiveTool={(tool) => dispatch(caseActions.setActiveTool(tool))}
         onSetYarnColor={(color) => dispatch(caseActions.setYarnColor(color))}
+        onSetInkColor={(color) => dispatch(caseActions.setInkColor(color))}
         onAlignAll={() => dispatch(caseActions.alignAllCards())}
         onToggleMode={() => dispatch(caseActions.toggleMode())}
+        onSetFrameDimensions={(w, h) =>
+          dispatch(caseActions.setFrameDimensions(w, h))
+        }
       />
     </div>
   );

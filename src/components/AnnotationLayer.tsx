@@ -1,9 +1,13 @@
 import React, { useRef, useState } from 'react';
 import { ActiveTool, AnnotationData } from '../domain/types';
+import { getPointerClientCoords } from '../domain/caseStore';
 
 export interface AnnotationLayerProps {
   target: 'card' | 'board';
   cardId?: string;
+  cardSkew?: number;
+  cardWidth?: number;
+  cardHeight?: number;
   annotations: AnnotationData[];
   activeTool: ActiveTool;
   activeInkColor: string;
@@ -102,9 +106,47 @@ export function buildSketchyShapePath(ann: AnnotationData): string {
   return '';
 }
 
+/**
+ * Converts a pointer position relative to a Card's bounding box (`clientX`, `clientY`, `rect`)
+ * into un-rotated local `0..100` percentage coordinates by inverse-rotating around the Card's center by `-skewDeg`.
+ */
+export function clientToCardLocalPercent(
+  clientX: number,
+  clientY: number,
+  rect: { left: number; top: number; width: number; height: number },
+  skewDeg = 0,
+  unrotatedSize?: { width: number; height: number }
+): { x: number; y: number } {
+  const boxW = rect.width > 0 ? rect.width : unrotatedSize?.width ?? 250;
+  const boxH = rect.height > 0 ? rect.height : unrotatedSize?.height ?? 250;
+  const cardW = unrotatedSize && unrotatedSize.width > 0 ? unrotatedSize.width : boxW;
+  const cardH = unrotatedSize && unrotatedSize.height > 0 ? unrotatedSize.height : boxH;
+
+  const centerX = rect.left + boxW / 2;
+  const centerY = rect.top + boxH / 2;
+  const dx = clientX - centerX;
+  const dy = clientY - centerY;
+
+  const rad = (-skewDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+
+  const pctX = ((localX + cardW / 2) / cardW) * 100;
+  const pctY = ((localY + cardH / 2) / cardH) * 100;
+  return {
+    x: Math.max(0, Math.min(100, Number(pctX.toFixed(2)))),
+    y: Math.max(0, Math.min(100, Number(pctY.toFixed(2)))),
+  };
+}
+
 export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   target,
   cardId,
+  cardSkew = 0,
+  cardWidth,
+  cardHeight,
   annotations,
   activeTool,
   activeInkColor,
@@ -146,38 +188,32 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     origH: number;
   } | null>(null);
 
-  const getEventClientCoords = (e: React.PointerEvent | React.MouseEvent) => {
-    const native = e.nativeEvent as unknown as Record<string, number | undefined>;
-    const clientX =
-      typeof e.clientX === 'number' && !Number.isNaN(e.clientX)
-        ? e.clientX
-        : native?.clientX ?? native?.pageX ?? 0;
-    const clientY =
-      typeof e.clientY === 'number' && !Number.isNaN(e.clientY)
-        ? e.clientY
-        : native?.clientY ?? native?.pageY ?? 0;
-    return { clientX, clientY };
-  };
-
   /**
    * Convert client coordinates to either:
-   * - Card normalized percentages (`0..100`) when `target === 'card'`
+   * - Card normalized percentages (`0..100`) when `target === 'card'` (un-rotating by `-cardSkew`)
    * - Board plane coordinates when `target === 'board'`
    */
   const clientToLocal = (clientX: number, clientY: number): { x: number; y: number } => {
     if (target === 'card') {
       const cardEl = svgRef.current?.closest('[data-card-root]') as HTMLElement | null;
       const rect = cardEl?.getBoundingClientRect() ?? svgRef.current?.getBoundingClientRect();
-      const width = rect && rect.width > 0 ? rect.width : 250;
-      const height = rect && rect.height > 0 ? rect.height : 250;
-      const left = rect?.left ?? 0;
-      const top = rect?.top ?? 0;
-      const pctX = ((clientX - left) / width) * 100;
-      const pctY = ((clientY - top) / height) * 100;
-      return {
-        x: Math.max(0, Math.min(100, Number(pctX.toFixed(2)))),
-        y: Math.max(0, Math.min(100, Number(pctY.toFixed(2)))),
-      };
+      const skewAttr = cardEl?.getAttribute('data-card-skew');
+      const effectiveSkew =
+        cardSkew !== 0 ? cardSkew : skewAttr ? Number(skewAttr) || 0 : 0;
+      const unrotatedW = cardWidth ? cardWidth * zoom : undefined;
+      const unrotatedH = cardHeight ? cardHeight * zoom : undefined;
+      return clientToCardLocalPercent(
+        clientX,
+        clientY,
+        {
+          left: rect?.left ?? 0,
+          top: rect?.top ?? 0,
+          width: rect && rect.width > 0 ? rect.width : unrotatedW ?? 250,
+          height: rect && rect.height > 0 ? rect.height : unrotatedH ?? 250,
+        },
+        effectiveSkew,
+        unrotatedW && unrotatedH ? { width: unrotatedW, height: unrotatedH } : undefined
+      );
     }
 
     const viewportEl = svgRef.current?.closest('[data-testid="board-viewport"]') as HTMLElement | null;
@@ -205,7 +241,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     }
 
     e.stopPropagation();
-    const { clientX, clientY } = getEventClientCoords(e);
+    const { clientX, clientY } = getPointerClientCoords(e);
     const pt = clientToLocal(clientX, clientY);
     const kind = activeTool as AnnotationData['kind'];
 
@@ -222,7 +258,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const handleLayerPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!draft && !moveDrag && !resizeDrag) return;
     e.stopPropagation();
-    const { clientX, clientY } = getEventClientCoords(e);
+    const { clientX, clientY } = getPointerClientCoords(e);
     const pt = clientToLocal(clientX, clientY);
 
     if (draft) {
@@ -402,7 +438,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
               if (activeTool === 'select') {
                 onSelectAnnotation(ann.id);
-                const { clientX, clientY } = getEventClientCoords(e);
+                const { clientX, clientY } = getPointerClientCoords(e);
                 const pt = clientToLocal(clientX, clientY);
                 setMoveDrag({
                   annotationId: ann.id,
@@ -461,7 +497,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                   style={{ cursor: 'nwse-resize', pointerEvents: 'auto' }}
                   onPointerDown={(e) => {
                     e.stopPropagation();
-                    const { clientX, clientY } = getEventClientCoords(e);
+                    const { clientX, clientY } = getPointerClientCoords(e);
                     const pt = clientToLocal(clientX, clientY);
                     setResizeDrag({
                       annotationId: ann.id,

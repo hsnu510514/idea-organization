@@ -11,6 +11,7 @@ import {
   findNearestPinOnCard,
   getOutOfBoundsCards,
   getPinBoardCoords,
+  getPointerClientCoords,
 } from '../domain/caseStore';
 import {
   Compass,
@@ -89,6 +90,13 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
     centerY: number;
   } | null>(null);
 
+  const [frameResizeDrag, setFrameResizeDrag] = useState<{
+    startX: number;
+    startY: number;
+    origW: number;
+    origH: number;
+  } | null>(null);
+
   const [liveAnnouncement, setLiveAnnouncement] = useState<string>('');
   const [textSelections, setTextSelections] = useState<
     Record<string, SelectionRange | null>
@@ -127,18 +135,7 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [state.selectedAnnotationId, dispatch]);
 
-  const getEventCoords = (e: React.PointerEvent | React.MouseEvent) => {
-    const native = e.nativeEvent as unknown as Record<string, number | undefined>;
-    const cx =
-      typeof e.clientX === 'number' && !Number.isNaN(e.clientX)
-        ? e.clientX
-        : native?.clientX ?? native?.pageX ?? 0;
-    const cy =
-      typeof e.clientY === 'number' && !Number.isNaN(e.clientY)
-        ? e.clientY
-        : native?.clientY ?? native?.pageY ?? 0;
-    return { clientX: cx, clientY: cy };
-  };
+  const getEventCoords = getPointerClientCoords;
 
   const clientToBoard = (clientX: number, clientY: number) => {
     const rect = viewportRef.current?.getBoundingClientRect();
@@ -174,7 +171,11 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
   const handleViewportPointerDown = (e: React.PointerEvent) => {
     if (e.button === 2) return;
     const target = e.target as HTMLElement;
-    if (target.closest('[data-card-root]') || target.closest('[data-string-tag]')) {
+    if (
+      target.closest('[data-card-root]') ||
+      target.closest('[data-string-tag]') ||
+      target.closest('[data-testid="bounded-frame-resize-handle"]')
+    ) {
       return;
     }
     const { clientX, clientY } = getEventCoords(e);
@@ -265,6 +266,18 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
       const angleDeg = (angleRad * 180) / Math.PI + 90;
       const clampedAngle = Math.max(-45, Math.min(45, angleDeg));
       dispatch(caseActions.setCardSkew(rotateDrag.cardId, clampedAngle));
+      return;
+    }
+
+    if (frameResizeDrag) {
+      const dx = (clientX - frameResizeDrag.startX) / state.zoom;
+      const dy = (clientY - frameResizeDrag.startY) / state.zoom;
+      dispatch(
+        caseActions.setFrameDimensions(
+          frameResizeDrag.origW + dx,
+          frameResizeDrag.origH + dy
+        )
+      );
     }
   };
 
@@ -281,6 +294,7 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
     setStringDraft(null);
     setResizeDrag(null);
     setRotateDrag(null);
+    setFrameResizeDrag(null);
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -309,7 +323,7 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
       toCardId: targetCardId,
       toPinId: targetPinId,
       color: state.activeYarnColor,
-      label: 'New link',
+      label: 'New string',
     };
     dispatch(caseActions.addString(newStr));
     setStringDraft(null);
@@ -424,12 +438,31 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
           }
         >
           {state.mode === 'bounded' && (
-            <div className="frame-brass-plate">
-              <span>{state.caseTitle}</span>
-              <span className="plate-dim">
-                {state.frameWidth} × {state.frameHeight}px
-              </span>
-            </div>
+            <>
+              <div className="frame-brass-plate">
+                <span>{state.caseTitle}</span>
+                <span className="plate-dim">
+                  {state.frameWidth} × {state.frameHeight}px
+                </span>
+              </div>
+              <div
+                data-testid="bounded-frame-resize-handle"
+                className="bounded-frame-resize-corner"
+                title="Drag to resize Bounded Wooden Frame"
+                aria-label="Resize Bounded Wooden Frame"
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.stopPropagation();
+                  const { clientX, clientY } = getEventCoords(e);
+                  setFrameResizeDrag({
+                    startX: clientX,
+                    startY: clientY,
+                    origW: state.frameWidth,
+                    origH: state.frameHeight,
+                  });
+                }}
+              />
+            </>
           )}
         </div>
 
@@ -963,6 +996,10 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
               <AnnotationLayer
                 target="card"
                 cardId={card.id}
+                cardSkew={card.skew}
+                cardWidth={card.width}
+                cardHeight={card.height}
+                zoom={state.zoom}
                 annotations={card.annotations}
                 activeTool={state.activeTool}
                 activeInkColor={state.activeInkColor}

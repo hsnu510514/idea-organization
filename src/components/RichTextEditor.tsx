@@ -97,7 +97,9 @@ function cleanStylePatch(style: RichTextStylePatch): RichTextStylePatch | undefi
   if (style.fontStyle) cleaned.fontStyle = style.fontStyle;
   if (style.fontSize) cleaned.fontSize = style.fontSize;
   if (style.color) cleaned.color = style.color;
-  if (style.highlight) cleaned.highlight = style.highlight;
+  if (style.highlight && style.highlight !== 'transparent' && style.highlight !== 'none') {
+    cleaned.highlight = style.highlight;
+  }
   if (style.bold) cleaned.bold = true;
   if (style.italic) cleaned.italic = true;
   if (style.underline) cleaned.underline = true;
@@ -206,6 +208,101 @@ export function applyFormatToSelection(
   };
 }
 
+/**
+ * Reconciles a plainText edit (`prevPlain` -> `nextPlain`) against existing structured `richContent`
+ * so existing formatted spans outside the edited region are preserved and inserted text inherits the adjacent span style.
+ */
+export function reconcileRichTextEdit(
+  prevRichContent: string,
+  prevPlainText: string,
+  nextPlainText: string
+): string {
+  if (prevPlainText === nextPlainText) {
+    return prevRichContent;
+  }
+
+  const prevSegments = parseRichContent(prevRichContent, prevPlainText);
+  const hasAnyFormatting = prevSegments.some(
+    (s) => s.style && Object.values(s.style).some((v) => v !== undefined && v !== false)
+  );
+  if (!hasAnyFormatting) {
+    return nextPlainText;
+  }
+
+  // Find common prefix length
+  let prefixLen = 0;
+  const minLen = Math.min(prevPlainText.length, nextPlainText.length);
+  while (
+    prefixLen < minLen &&
+    prevPlainText[prefixLen] === nextPlainText[prefixLen]
+  ) {
+    prefixLen += 1;
+  }
+
+  // Find common suffix length after prefix
+  let suffixLen = 0;
+  while (
+    suffixLen < prevPlainText.length - prefixLen &&
+    suffixLen < nextPlainText.length - prefixLen &&
+    prevPlainText[prevPlainText.length - 1 - suffixLen] ===
+      nextPlainText[nextPlainText.length - 1 - suffixLen]
+  ) {
+    suffixLen += 1;
+  }
+
+  const deleteStart = prefixLen;
+  const deleteEnd = prevPlainText.length - suffixLen;
+  const insertedText = nextPlainText.slice(
+    prefixLen,
+    nextPlainText.length - suffixLen
+  );
+
+  // Build prefix segments [0, deleteStart), inherited style for insertion, and suffix segments [deleteEnd, prevPlainText.length)
+  const prefixSegments: RichTextSegment[] = [];
+  const suffixSegments: RichTextSegment[] = [];
+  let inheritedStyle: RichTextStylePatch | undefined;
+
+  let cursor = 0;
+  for (const seg of prevSegments) {
+    const segStart = cursor;
+    const segEnd = cursor + seg.text.length;
+    cursor = segEnd;
+
+    if (segStart < deleteStart) {
+      const takeEnd = Math.min(segEnd, deleteStart) - segStart;
+      const sliceText = seg.text.slice(0, takeEnd);
+      if (sliceText) {
+        prefixSegments.push({ text: sliceText, style: seg.style });
+      }
+      if (segEnd >= deleteStart) {
+        inheritedStyle = seg.style;
+      }
+    }
+
+    if (segEnd > deleteEnd) {
+      const takeStart = Math.max(segStart, deleteEnd) - segStart;
+      const sliceText = seg.text.slice(takeStart);
+      if (sliceText) {
+        suffixSegments.push({ text: sliceText, style: seg.style });
+      }
+      if (inheritedStyle === undefined && segStart <= deleteStart) {
+        inheritedStyle = seg.style;
+      }
+    }
+  }
+
+  const nextSegments: RichTextSegment[] = [...prefixSegments];
+  if (insertedText) {
+    nextSegments.push({
+      text: insertedText,
+      ...(inheritedStyle ? { style: inheritedStyle } : {}),
+    });
+  }
+  nextSegments.push(...suffixSegments);
+
+  return serializeRichSegments(nextSegments);
+}
+
 export interface RichTextEditorProps {
   card: CardData;
   onChangeText: (plainText: string, richContent: string) => void;
@@ -253,7 +350,12 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         onMouseUp={reportSelection}
         onChange={(e) => {
           const nextPlain = e.target.value;
-          onChangeText(nextPlain, nextPlain);
+          const nextRich = reconcileRichTextEdit(
+            card.richContent,
+            card.plainText,
+            nextPlain
+          );
+          onChangeText(nextPlain, nextRich);
         }}
       />
 

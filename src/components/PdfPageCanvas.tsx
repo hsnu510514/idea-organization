@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { PdfClipRect } from '../domain/types';
+import { readBlobAsBytes } from '../storage/caseZip';
 
 // Cache raw PDF bytes or text in-memory by asset URL or assetId so pdfjs-dist and JSDOM fallback can render
 const pdfBinaryCache = new Map<string, Uint8Array>();
@@ -8,23 +9,38 @@ export function cachePdfBinary(key: string, data: Uint8Array): void {
   pdfBinaryCache.set(key, data);
 }
 
-async function readBlobBytes(file: File | Blob): Promise<Uint8Array> {
-  if (typeof file.arrayBuffer === 'function') {
-    const buf = await file.arrayBuffer();
-    return new Uint8Array(buf);
-  }
-  return new Promise<Uint8Array>((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (reader.result instanceof ArrayBuffer) {
-        resolve(new Uint8Array(reader.result));
-      } else {
-        resolve(new Uint8Array());
-      }
-    };
-    reader.onerror = () => resolve(new Uint8Array());
-    reader.readAsArrayBuffer(file);
-  });
+/**
+ * Crops a rendered source canvas to a normalized `{ x, y, w, h }` sub-rectangle onto `targetCanvas`.
+ */
+export function drawCroppedPageToCanvas(
+  sourceCanvas: HTMLCanvasElement,
+  targetCanvas: HTMLCanvasElement,
+  cropRect: PdfClipRect
+): void {
+  const ctx = targetCanvas.getContext('2d');
+  if (!ctx) return;
+
+  const srcW = sourceCanvas.width || 1;
+  const srcH = sourceCanvas.height || 1;
+  const sx = Math.max(0, Math.min(srcW, cropRect.x * srcW));
+  const sy = Math.max(0, Math.min(srcH, cropRect.y * srcH));
+  const sw = Math.max(1, Math.min(srcW - sx, cropRect.w * srcW));
+  const sh = Math.max(1, Math.min(srcH - sy, cropRect.h * srcH));
+
+  targetCanvas.width = Math.max(1, Math.round(sw));
+  targetCanvas.height = Math.max(1, Math.round(sh));
+  ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+  ctx.drawImage(
+    sourceCanvas,
+    sx,
+    sy,
+    sw,
+    sh,
+    0,
+    0,
+    targetCanvas.width,
+    targetCanvas.height
+  );
 }
 
 function countPagesFromPdfBytes(bytes: Uint8Array): number {
@@ -53,7 +69,7 @@ export async function inspectPdfPageCount(
   file: File | Blob,
   cacheKey?: string
 ): Promise<number> {
-  const bytes = await readBlobBytes(file);
+  const bytes = await readBlobAsBytes(file);
   if (cacheKey) {
     pdfBinaryCache.set(cacheKey, bytes);
   }
@@ -159,13 +175,38 @@ export const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         const viewport = page.getViewport({ scale: 1.15 });
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          await page.render({
-            canvasContext: ctx,
-            canvas,
-            viewport,
-          }).promise;
+          if (cropRect && typeof document !== 'undefined') {
+            const offscreen = document.createElement('canvas');
+            offscreen.width = viewport.width;
+            offscreen.height = viewport.height;
+            const offCtx = offscreen.getContext('2d');
+            if (offCtx) {
+              await page.render({
+                canvasContext: offCtx,
+                canvas: offscreen,
+                viewport,
+              }).promise;
+              if (!cancelled) {
+                drawCroppedPageToCanvas(offscreen, canvas, cropRect);
+              }
+            } else {
+              canvas.width = viewport.width;
+              canvas.height = viewport.height;
+              await page.render({
+                canvasContext: ctx,
+                canvas,
+                viewport,
+              }).promise;
+            }
+          } else {
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({
+              canvasContext: ctx,
+              canvas,
+              viewport,
+            }).promise;
+          }
         } else {
           renderFallback2D();
         }

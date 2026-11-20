@@ -59,12 +59,14 @@ const INK_COLORS: Array<{ hex: string; label: string }> = [
   { hex: '#A11D21', label: '#A11D21' },
   { hex: '#235789', label: '#235789' },
   { hex: '#2B6E46', label: '#2B6E46' },
+  { hex: '#5C3A21', label: '#5C3A21' },
 ];
 
 const HIGHLIGHT_COLORS: Array<{ hex: string; label: string }> = [
   { hex: '#F3DF7D', label: '#F3DF7D' },
   { hex: '#F2C6C2', label: '#F2C6C2' },
   { hex: '#CBE6D4', label: '#CBE6D4' },
+  { hex: 'transparent', label: 'none' },
 ];
 
 export const FloatingPaperRibbon: React.FC<FloatingPaperRibbonProps> = ({

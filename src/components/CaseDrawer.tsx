@@ -54,6 +54,29 @@ export function matchesCardFilter(
   );
 }
 
+export function matchesAssetFilter(
+  asset: AssetRecord,
+  searchQuery: string,
+  kindFilter: KindFilterOption
+): boolean {
+  const isPdf = asset.mimeType === 'application/pdf';
+  if (kindFilter !== 'all') {
+    if (kindFilter === 'photo') {
+      if (isPdf) return false;
+    } else if (kindFilter === 'pdf-stack' || kindFilter === 'clipping') {
+      if (!isPdf) return false;
+    } else {
+      return false;
+    }
+  }
+  const q = searchQuery.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    asset.filename.toLowerCase().includes(q) ||
+    asset.mimeType.toLowerCase().includes(q)
+  );
+}
+
 export const CaseDrawer: React.FC<CaseDrawerProps> = ({
   state,
   onStashCard,
@@ -72,6 +95,9 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({
   );
   const filteredAllCards = state.cards.filter((c) =>
     matchesCardFilter(c, searchQuery, kindFilter)
+  );
+  const filteredAssets = state.assets.filter((a) =>
+    matchesAssetFilter(a, searchQuery, kindFilter)
   );
 
   return (
@@ -184,14 +210,14 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({
           data-testid="case-drawer-assets-section"
           className="va-drawer-section"
         >
-          <h4>UPLOADED ASSETS ({state.assets.length})</h4>
-          {state.assets.length === 0 ? (
+          <h4>UPLOADED ASSETS ({filteredAssets.length})</h4>
+          {filteredAssets.length === 0 ? (
             <p className="va-empty-hint">
               No uploaded PDF or image Assets in this Case yet.
             </p>
           ) : (
             <ul className="va-card-list">
-              {state.assets.map((asset) => {
+              {filteredAssets.map((asset) => {
                 const isPdf = asset.mimeType === 'application/pdf';
                 return (
                   <li

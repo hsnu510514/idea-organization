@@ -8,6 +8,8 @@ import {
   getPinBoardCoords,
   findNearestPinOnCard,
 } from '../caseStore';
+import { drawCroppedPageToCanvas } from '../../components/PdfPageCanvas';
+import { createDefaultWorkspaceAdapter } from '../../storage/localDiskWorkspaceAdapter';
 
 describe('caseStore — human skew generation & card spawning', () => {
   it('generateHumanSkew produces angles strictly between -5.5 and +5.5 excluding |skew| < 1.2', () => {
@@ -99,11 +101,31 @@ describe('caseStore — human skew generation & card spawning', () => {
     const oob = getOutOfBoundsCards(state);
     expect(oob.map((c) => c.id)).toEqual(['far-card']);
 
-    // Expand frame to fit all Cards
+    // Expand frame to fit all Cards without mutating existing Card coordinates
     state = caseReducer(state, caseActions.autoFitFrame());
     expect(state.frameWidth).toBeGreaterThanOrEqual(1350 + 260);
     expect(state.frameHeight).toBeGreaterThanOrEqual(720 + 220);
     expect(getOutOfBoundsCards(state)).toHaveLength(0);
+
+    // Even when a Card has negative coordinates, AUTO_FIT_FRAME must NOT mutate Card (x, y)
+    state = caseReducer(
+      state,
+      caseActions.spawnCard({
+        id: 'neg-card',
+        kind: 'sticky',
+        x: -140,
+        y: -95,
+        width: 210,
+        height: 190,
+      })
+    );
+    state = caseReducer(state, caseActions.autoFitFrame());
+    const negCardAfterFit = state.cards.find((c) => c.id === 'neg-card')!;
+    const farCardAfterFit = state.cards.find((c) => c.id === 'far-card')!;
+    expect(negCardAfterFit.x).toBe(-140);
+    expect(negCardAfterFit.y).toBe(-95);
+    expect(farCardAfterFit.x).toBe(1350);
+    expect(farCardAfterFit.y).toBe(720);
   });
 
   it('clamps zoom strictly between 0.35x and 2.2x and supports moving and resizing cards', () => {
@@ -565,5 +587,44 @@ describe('caseStore — human skew generation & card spawning', () => {
       caseActions.setCaseTitle('CASE #510 — SOUTH DOCK CONSPIRACY')
     );
     expect(state.caseTitle).toBe('CASE #510 — SOUTH DOCK CONSPIRACY');
+  });
+
+  it('crops a rendered PDF page canvas to a normalized cropRect via drawCroppedPageToCanvas and falls back cleanly in createDefaultWorkspaceAdapter when /api/workspace is offline', async () => {
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = 400;
+    sourceCanvas.height = 600;
+    const targetCanvas = document.createElement('canvas');
+    let drawImageArgs: number[] = [];
+    targetCanvas.getContext = (() => ({
+      clearRect: () => {},
+      drawImage: (_img: unknown, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number) => {
+        drawImageArgs = [sx, sy, sw, sh, dx, dy, dw, dh];
+      },
+    })) as unknown as typeof targetCanvas.getContext;
+
+    drawCroppedPageToCanvas(sourceCanvas, targetCanvas, {
+      x: 0.25,
+      y: 0.2,
+      w: 0.5,
+      h: 0.4,
+    });
+
+    expect(targetCanvas.width).toBe(200);
+    expect(targetCanvas.height).toBe(240);
+    expect(drawImageArgs).toEqual([100, 120, 200, 240, 0, 0, 200, 240]);
+
+    // Verify createDefaultWorkspaceAdapter falls back seamlessly to in-memory storage when fetch fails
+    const hybridAdapter = createDefaultWorkspaceAdapter({
+      fetchImpl: async () => {
+        throw new Error('Network offline');
+      },
+    });
+    const testCase = createInitialCaseState({
+      caseSlug: 'case-offline-fallback',
+      caseTitle: 'OFFLINE FALLBACK CASE',
+    });
+    await hybridAdapter.saveCase(testCase.caseSlug, testCase);
+    const loaded = await hybridAdapter.loadCase('case-offline-fallback');
+    expect(loaded?.caseTitle).toBe('OFFLINE FALLBACK CASE');
   });
 });

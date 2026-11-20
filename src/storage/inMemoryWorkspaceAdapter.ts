@@ -6,10 +6,10 @@ import {
 } from '../domain/types';
 import { createInitialCaseState } from '../domain/caseStore';
 import {
+  importCaseZipIntoAdapter,
   inferAssetMimeType,
   packCaseZip,
   readBlobAsBytes,
-  unpackCaseZip,
 } from './caseZip';
 import { cachePdfBinary } from '../components/PdfPageCanvas';
 
@@ -119,16 +119,7 @@ export function createInMemoryWorkspaceAdapter(
     },
 
     async importCaseZip(zipFile: File | Blob): Promise<CaseState> {
-      const unpacked = await unpackCaseZip(zipFile);
-      const boardData = structuredClone(unpacked.boardData);
-
-      for (const entry of unpacked.assets) {
-        const blob = new Blob([entry.bytes], { type: entry.mimeType });
-        await this.saveAsset(boardData.caseSlug, blob, entry.filename);
-      }
-
-      cases.set(boardData.caseSlug, structuredClone(boardData));
-      return structuredClone(boardData);
+      return importCaseZipIntoAdapter(this, zipFile);
     },
   };
 }

@@ -6,11 +6,12 @@ import {
 } from '../domain/types';
 import { createInitialCaseState } from '../domain/caseStore';
 import {
+  importCaseZipIntoAdapter,
   inferAssetMimeType,
   packCaseZip,
   readBlobAsBytes,
-  unpackCaseZip,
 } from './caseZip';
+import { createInMemoryWorkspaceAdapter } from './inMemoryWorkspaceAdapter';
 import { cachePdfBinary } from '../components/PdfPageCanvas';
 
 export interface LocalDiskWorkspaceAdapterOptions {
@@ -121,16 +122,105 @@ export function createLocalDiskWorkspaceAdapter(
     },
 
     async importCaseZip(zipFile: File | Blob): Promise<CaseState> {
-      const unpacked = await unpackCaseZip(zipFile);
-      const boardData = unpacked.boardData;
-
-      for (const entry of unpacked.assets) {
-        const blob = new Blob([entry.bytes], { type: entry.mimeType });
-        await this.saveAsset(boardData.caseSlug, blob, entry.filename);
-      }
-
-      await this.saveCase(boardData.caseSlug, boardData);
-      return boardData;
+      return importCaseZipIntoAdapter(this, zipFile);
     },
   };
 }
+
+export interface DefaultWorkspaceAdapterOptions extends LocalDiskWorkspaceAdapterOptions {
+  initialCases?: CaseState[];
+}
+
+/**
+ * Hybrid runtime Workspace adapter that attempts to communicate with the Vite Local Disk Middleware
+ * (`/api/workspace/...`) when available, and seamlessly falls back to an in-memory Workspace adapter
+ * when offline or running in environments where `/api/workspace` is not mounted.
+ */
+export function createDefaultWorkspaceAdapter(
+  options?: DefaultWorkspaceAdapterOptions
+): WorkspaceStorageAdapter {
+  const baseUrl = (options?.baseUrl ?? '/api/workspace').replace(/\/+$/, '');
+  const fetchFn = options?.fetchImpl ?? ((input, init) => fetch(input, init));
+  const diskAdapter = createLocalDiskWorkspaceAdapter({ baseUrl, fetchImpl: fetchFn });
+  const memoryAdapter = createInMemoryWorkspaceAdapter(options?.initialCases);
+
+  let mode: 'unknown' | 'disk' | 'memory' = 'unknown';
+
+  async function resolveAdapter(): Promise<WorkspaceStorageAdapter> {
+    if (mode === 'disk') return diskAdapter;
+    if (mode === 'memory') return memoryAdapter;
+    try {
+      const res = await fetchFn(`${baseUrl}/cases`, { method: 'GET' });
+      const contentType = res.headers?.get?.('content-type') ?? '';
+      if (res.ok && (!contentType || contentType.includes('application/json'))) {
+        mode = 'disk';
+        return diskAdapter;
+      }
+    } catch {
+      // Fallback to in-memory adapter
+    }
+    mode = 'memory';
+    return memoryAdapter;
+  }
+
+  return {
+    peekCases(): CaseSummary[] {
+      return memoryAdapter.peekCases ? memoryAdapter.peekCases() : [];
+    },
+
+    async listCases(): Promise<CaseSummary[]> {
+      const active = await resolveAdapter();
+      return active.listCases();
+    },
+
+    async loadCase(caseSlug: string): Promise<CaseState | null> {
+      const active = await resolveAdapter();
+      return active.loadCase(caseSlug);
+    },
+
+    async saveCase(caseSlug: string, boardData: CaseState): Promise<void> {
+      await memoryAdapter.saveCase(caseSlug, boardData);
+      const active = await resolveAdapter();
+      if (active === diskAdapter) {
+        await diskAdapter.saveCase(caseSlug, boardData);
+      }
+    },
+
+    async deleteCase(caseSlug: string): Promise<void> {
+      await memoryAdapter.deleteCase(caseSlug);
+      const active = await resolveAdapter();
+      if (active === diskAdapter) {
+        await diskAdapter.deleteCase(caseSlug);
+      }
+    },
+
+    async saveAsset(
+      caseSlug: string,
+      file: File | Blob,
+      filename?: string
+    ): Promise<AssetRecord> {
+      const active = await resolveAdapter();
+      if (active === diskAdapter) {
+        return diskAdapter.saveAsset(caseSlug, file, filename);
+      }
+      return memoryAdapter.saveAsset(caseSlug, file, filename);
+    },
+
+    async loadAssetUrl(caseSlug: string, relativePath: string): Promise<string> {
+      const active = await resolveAdapter();
+      return active.loadAssetUrl(caseSlug, relativePath);
+    },
+
+    async exportCaseZip(caseSlug: string): Promise<Blob> {
+      const active = await resolveAdapter();
+      return active.exportCaseZip(caseSlug);
+    },
+
+    async importCaseZip(zipFile: File | Blob): Promise<CaseState> {
+      const active = await resolveAdapter();
+      return active.importCaseZip(zipFile);
+    },
+  };
+}
+
+export const defaultWorkspaceAdapter = createDefaultWorkspaceAdapter();
