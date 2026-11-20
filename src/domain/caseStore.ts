@@ -55,6 +55,27 @@ export function getPinBoardCoords(card: CardData, pin: PinData): { x: number; y:
 }
 
 /**
+ * Find the nearest Pin on a target Card to a given point in Board coordinates (Euclidean distance).
+ */
+export function findNearestPinOnCard(
+  card: CardData,
+  boardPt: { x: number; y: number }
+): PinData | null {
+  if (!card.pins || card.pins.length === 0) return null;
+  let nearest = card.pins[0];
+  let bestDist = Infinity;
+  for (const pin of card.pins) {
+    const coords = getPinBoardCoords(card, pin);
+    const dist = Math.hypot(coords.x - boardPt.x, coords.y - boardPt.y);
+    if (dist < bestDist) {
+      bestDist = dist;
+      nearest = pin;
+    }
+  }
+  return nearest;
+}
+
+/**
  * Build a quadratic catenary-like sagging SVG path between two points.
  */
 export function buildCatenaryPath(
@@ -399,7 +420,7 @@ export type CaseAction =
   | { type: 'SET_ACTIVE_TOOL'; payload: ActiveTool }
   | { type: 'SET_YARN_COLOR'; payload: YarnColor }
   | { type: 'SET_INK_COLOR'; payload: string }
-  | { type: 'ADD_PIN'; payload: { cardId: string; pin?: PinData } }
+  | { type: 'ADD_PIN'; payload: { cardId: string; pin?: Partial<PinData> } }
   | { type: 'MOVE_PIN'; payload: { cardId: string; pinId: string; rx: number; ry: number } }
   | { type: 'ADD_STRING'; payload: StringData }
   | { type: 'UPDATE_STRING'; payload: { stringId: string; label: string } }
@@ -484,7 +505,7 @@ export const caseActions = {
     type: 'SET_INK_COLOR',
     payload: color,
   }),
-  addPin: (cardId: string, pin?: PinData): CaseAction => ({
+  addPin: (cardId: string, pin?: Partial<PinData>): CaseAction => ({
     type: 'ADD_PIN',
     payload: { cardId, pin },
   }),
@@ -756,11 +777,20 @@ export function caseReducer(state: CaseState, action: CaseAction): CaseState {
         cards: state.cards.map((c) => {
           if (c.id !== action.payload.cardId) return c;
           const nextIdx = c.pins.length;
-          const newPin: PinData = action.payload.pin ?? {
-            id: nextId('pin'),
-            rx: Math.min(88, 22 + ((nextIdx * 23) % 65)),
-            ry: nextIdx % 2 === 1 ? 85 : 12,
-            color: colors[nextIdx % colors.length],
+          const partial = action.payload.pin;
+          const newPin: PinData = {
+            id: partial?.id ?? nextId('pin'),
+            rx:
+              partial?.rx !== undefined
+                ? Math.max(4, Math.min(96, partial.rx))
+                : Math.min(88, 22 + ((nextIdx * 23) % 65)),
+            ry:
+              partial?.ry !== undefined
+                ? Math.max(4, Math.min(96, partial.ry))
+                : nextIdx % 2 === 1
+                ? 85
+                : 12,
+            color: partial?.color ?? colors[nextIdx % colors.length],
           };
           return {
             ...c,

@@ -5,6 +5,8 @@ import {
   caseReducer,
   caseActions,
   getOutOfBoundsCards,
+  getPinBoardCoords,
+  findNearestPinOnCard,
 } from '../caseStore';
 
 describe('caseStore — human skew generation & card spawning', () => {
@@ -124,5 +126,63 @@ describe('caseStore — human skew generation & card spawning', () => {
     state = caseReducer(state, caseActions.resizeCard('c1', 340, 260));
     expect(state.cards[0].width).toBe(340);
     expect(state.cards[0].height).toBe(260);
+  });
+
+  it('adds extra Pins in selectable colors (red, brass, blue, black), clamps Pin coordinates to 4%..96%, and computes rotation-aware Pin board coordinates and nearest Pin snapping', () => {
+    let state = createInitialCaseState({ cards: [], strings: [] });
+    state = caseReducer(
+      state,
+      caseActions.spawnCard({
+        id: 'card-a',
+        kind: 'a4',
+        x: 100,
+        y: 200,
+        width: 200,
+        height: 100,
+        skew: 0,
+      })
+    );
+
+    // Default pin is present
+    expect(state.cards[0].pins).toHaveLength(1);
+
+    // Add extra pins with explicit selectable colors
+    state = caseReducer(state, caseActions.addPin('card-a', { color: 'blue' }));
+    state = caseReducer(state, caseActions.addPin('card-a', { color: 'black' }));
+    state = caseReducer(state, caseActions.addPin('card-a', { color: 'red' }));
+    state = caseReducer(state, caseActions.addPin('card-a', { color: 'brass' }));
+
+    const pinColors = state.cards[0].pins.slice(1).map((p) => p.color);
+    expect(pinColors).toEqual(['blue', 'black', 'red', 'brass']);
+
+    // Move pin and verify clamping to 4%..96%
+    const firstPinId = state.cards[0].pins[0].id;
+    state = caseReducer(state, caseActions.movePin('card-a', firstPinId, -15, 112));
+    expect(state.cards[0].pins[0].rx).toBe(4);
+    expect(state.cards[0].pins[0].ry).toBe(96);
+
+    // Rotation-aware getPinBoardCoords:
+    // Card center is (100 + 100, 200 + 50) = (200, 250).
+    // Place pin at rx=100, ry=50 (right edge middle: localX = +100, localY = 0)
+    state = caseReducer(state, caseActions.movePin('card-a', firstPinId, 96, 50));
+    state = caseReducer(state, caseActions.setCardSkew('card-a', 90));
+    const rotatedCard = state.cards[0];
+    const rotatedPin = rotatedCard.pins[0];
+    // localX = (96/100)*200 - 100 = 92, localY = 0. Rotated +90 deg: x = 200 - 0 = 200, y = 250 + 92 = 342
+    const coords = getPinBoardCoords(rotatedCard, rotatedPin);
+    expect(coords.x).toBeCloseTo(200, 1);
+    expect(coords.y).toBeCloseTo(342, 1);
+
+    // Nearest pin on card calculation
+    const targetCard = {
+      ...rotatedCard,
+      skew: 0,
+      pins: [
+        { id: 'pin-left', rx: 10, ry: 50, color: 'red' as const }, // (120, 250)
+        { id: 'pin-right', rx: 90, ry: 50, color: 'blue' as const }, // (280, 250)
+      ],
+    };
+    expect(findNearestPinOnCard(targetCard, { x: 135, y: 245 })?.id).toBe('pin-left');
+    expect(findNearestPinOnCard(targetCard, { x: 265, y: 255 })?.id).toBe('pin-right');
   });
 });

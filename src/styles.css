@@ -236,6 +236,12 @@ body,
     0 0 0 2px rgba(212, 154, 42, 0.85);
 }
 
+.board-card.is-connected-neighbor {
+  box-shadow:
+    0 14px 28px rgba(0, 0, 0, 0.55),
+    0 0 0 2px rgba(212, 154, 42, 0.6);
+}
+
 .board-card.is-selected {
   box-shadow:
     0 16px 34px rgba(0, 0, 0, 0.58),
@@ -352,23 +358,50 @@ body,
   padding: 2px 4px;
 }
 
-/* Thumbtack Pins */
+/* Thumbtack Pins — Dual-Zone Ergonomics */
 .thumbtack-pin {
   position: absolute;
   z-index: 20;
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
   transform: translate(-50%, -50%);
-  cursor: crosshair;
   touch-action: none;
 }
 
-.thumbtack-pin .pin-head {
-  display: block;
-  width: 15px;
-  height: 15px;
-  margin: 2px auto;
+.thumbtack-pin .pin-collar-ring {
+  position: absolute;
+  inset: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border-radius: 50%;
+  border: 2px solid rgba(200, 157, 70, 0.85);
+  background: radial-gradient(circle, transparent 52%, rgba(200, 157, 70, 0.35) 56%, rgba(120, 86, 26, 0.55) 100%);
+  cursor: move;
+  opacity: 0.25;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.thumbtack-pin:hover .pin-collar-ring,
+.board-card.is-selected .thumbtack-pin .pin-collar-ring {
+  opacity: 1;
+}
+
+.thumbtack-pin .pin-collar-ring:hover {
+  transform: scale(1.1);
+}
+
+.thumbtack-pin .pin-head {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  display: block;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: crosshair;
   box-shadow:
     inset -2px -2px 4px rgba(0, 0, 0, 0.55),
     inset 2px 2px 4px rgba(255, 255, 255, 0.45),
@@ -377,7 +410,7 @@ body,
 }
 
 .thumbtack-pin:hover .pin-head {
-  transform: scale(1.22);
+  transform: scale(1.12);
 }
 
 .pin-red .pin-head {
@@ -391,6 +424,38 @@ body,
 }
 .pin-black .pin-head {
   background: radial-gradient(circle at 35% 35%, #555D66, #14171A);
+}
+
+.pin-color-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  background: #241710;
+  border: 1px solid rgba(200, 157, 70, 0.45);
+  border-radius: 3px;
+}
+
+.pin-color-swatch {
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+}
+
+.pin-swatch-red {
+  background: #D93036;
+}
+.pin-swatch-brass {
+  background: #D9AA4B;
+}
+.pin-swatch-blue {
+  background: #3575C6;
+}
+.pin-swatch-black {
+  background: #2A3036;
 }
 
 /* Quick Corner Action Bar on Card */

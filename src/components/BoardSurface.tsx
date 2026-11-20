@@ -10,6 +10,7 @@ import {
   buildCatenaryPath,
   CaseAction,
   caseActions,
+  findNearestPinOnCard,
   getOutOfBoundsCards,
   getPinBoardCoords,
 } from '../domain/caseStore';
@@ -169,8 +170,17 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
     if (pinMove) {
       const card = state.cards.find((c) => c.id === pinMove.cardId);
       if (card) {
-        const rx = ((pt.x - card.x) / card.width) * 100;
-        const ry = ((pt.y - card.y) / card.height) * 100;
+        const cx = card.x + card.width / 2;
+        const cy = card.y + card.height / 2;
+        const dx = pt.x - cx;
+        const dy = pt.y - cy;
+        const rad = (-card.skew * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const localX = dx * cos - dy * sin;
+        const localY = dx * sin + dy * cos;
+        const rx = ((localX + card.width / 2) / card.width) * 100;
+        const ry = ((localY + card.height / 2) / card.height) * 100;
         dispatch(caseActions.movePin(card.id, pinMove.pinId, rx, ry));
       }
       return;
@@ -238,10 +248,8 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
 
   const completeStringConnection = (targetCardId: string, targetPinId: string) => {
     if (!stringDraft) return;
-    if (
-      stringDraft.fromCardId === targetCardId &&
-      stringDraft.fromPinId === targetPinId
-    ) {
+    // Ignore self-loops to the same Card or same Pin
+    if (stringDraft.fromCardId === targetCardId) {
       setStringDraft(null);
       return;
     }
@@ -398,6 +406,10 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
         {visibleCards.map((card) => {
           const isSelected = state.selectedCardId === card.id;
           const isHovered = state.hoveredCardId === card.id;
+          const isConnectedNeighbor =
+            Boolean(state.hoveredCardId) &&
+            !isHovered &&
+            connectedCardIds.has(card.id);
           const isDimmed =
             Boolean(state.hoveredCardId) && !connectedCardIds.has(card.id);
 
@@ -411,8 +423,8 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
               className={`board-card kind-${card.kind} paper-${card.paperColor} font-${card.defaultFontStyle} size-${card.defaultFontSize} ${
                 isSelected ? 'is-selected' : ''
               } ${isHovered ? 'is-hovered-peek' : ''} ${
-                isDimmed ? 'is-dimmed-unconnected' : ''
-              }`}
+                isConnectedNeighbor ? 'is-connected-neighbor' : ''
+              } ${isDimmed ? 'is-dimmed-unconnected' : ''}`}
               style={{
                 left: card.x,
                 top: card.y,
@@ -431,6 +443,22 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
               onPointerDown={(e) => {
                 if (e.button !== 0) return;
                 dispatch(caseActions.bringToFront(card.id));
+              }}
+              onPointerUp={(e) => {
+                if (stringDraft) {
+                  e.stopPropagation();
+                  const { clientX, clientY } = getEventCoords(e);
+                  const hasCoords = clientX !== 0 || clientY !== 0;
+                  const dropPt = hasCoords
+                    ? clientToBoard(clientX, clientY)
+                    : { x: stringDraft.currX, y: stringDraft.currY };
+                  const nearestPin = findNearestPinOnCard(card, dropPt);
+                  if (nearestPin) {
+                    completeStringConnection(card.id, nearestPin.id);
+                  } else {
+                    setStringDraft(null);
+                  }
+                }
               }}
             >
               {/* Accessible Drag Handle Bar at top of Card */}
@@ -481,29 +509,14 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
                 <span className="drag-grip-dots">⋮⋮</span>
               </button>
 
-              {/* Movable Thumbtack Pins on the Card */}
+              {/* Movable Dual-Zone Thumbtack Pins on the Card */}
               {card.pins.map((pin) => (
                 <div
                   key={pin.id}
+                  data-testid={`pin-root-${pin.id}`}
+                  data-pin-id={pin.id}
                   className={`thumbtack-pin pin-${pin.color}`}
                   style={{ left: `${pin.rx}%`, top: `${pin.ry}%` }}
-                  title="Drag to tie yarn String • Shift+drag to move Pin on Card"
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    if (e.shiftKey) {
-                      setPinMove({ cardId: card.id, pinId: pin.id });
-                    } else {
-                      const coords = getPinBoardCoords(card, pin);
-                      setStringDraft({
-                        fromCardId: card.id,
-                        fromPinId: pin.id,
-                        startX: coords.x,
-                        startY: coords.y,
-                        currX: coords.x,
-                        currY: coords.y,
-                      });
-                    }
-                  }}
                   onPointerUp={(e) => {
                     e.stopPropagation();
                     if (stringDraft) {
@@ -511,7 +524,52 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
                     }
                   }}
                 >
-                  <span className="pin-head" />
+                  {/* Outer Brass Collar Ring — Drag to reposition Pin across Card without modifier keys */}
+                  <button
+                    type="button"
+                    data-testid={`pin-collar-${pin.id}`}
+                    data-pin-collar={pin.id}
+                    className="pin-collar-ring"
+                    aria-label={`Move ${pin.color} Pin on ${card.title}`}
+                    title="Drag outer brass collar to reposition Pin across Card"
+                    onPointerDown={(e) => {
+                      if (e.button !== 0) return;
+                      e.stopPropagation();
+                      setPinMove({ cardId: card.id, pinId: pin.id });
+                    }}
+                  />
+                  {/* Inner Pin Head Dome — Drag to pull yarn String */}
+                  <button
+                    type="button"
+                    data-testid={`pin-dome-${pin.id}`}
+                    data-pin-dome={pin.id}
+                    className="pin-head"
+                    aria-label={`Pull yarn String from ${pin.color} Pin on ${card.title}`}
+                    title="Drag inner Pin dome to pull yarn String"
+                    onPointerDown={(e) => {
+                      if (e.button !== 0) return;
+                      e.stopPropagation();
+                      if (e.shiftKey) {
+                        setPinMove({ cardId: card.id, pinId: pin.id });
+                      } else {
+                        const coords = getPinBoardCoords(card, pin);
+                        setStringDraft({
+                          fromCardId: card.id,
+                          fromPinId: pin.id,
+                          startX: coords.x,
+                          startY: coords.y,
+                          currX: coords.x,
+                          currY: coords.y,
+                        });
+                      }
+                    }}
+                    onPointerUp={(e) => {
+                      e.stopPropagation();
+                      if (stringDraft) {
+                        completeStringConnection(card.id, pin.id);
+                      }
+                    }}
+                  />
                   <span className="pin-needle-shadow" />
                 </div>
               ))}
@@ -603,6 +661,20 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
                   <Plus size={13} />
                   <span>Pin</span>
                 </button>
+                <div className="pin-color-swatches" role="group" aria-label="Add colored Pin">
+                  {(['red', 'brass', 'blue', 'black'] as const).map((pinColor) => (
+                    <button
+                      key={pinColor}
+                      type="button"
+                      className={`pin-color-swatch pin-swatch-${pinColor}`}
+                      aria-label={`Add ${pinColor} Pin`}
+                      title={`Add ${pinColor} Pin`}
+                      onClick={() =>
+                        dispatch(caseActions.addPin(card.id, { color: pinColor }))
+                      }
+                    />
+                  ))}
+                </div>
                 <button
                   type="button"
                   className="card-quick-btn"
@@ -672,8 +744,13 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
               state.hoveredCardId === str.toCardId;
 
             return (
-              <g key={str.id} className={isHighlighted ? 'yarn-highlighted' : ''}>
+              <g
+                key={str.id}
+                data-testid={`yarn-string-group-${str.id}`}
+                className={isHighlighted ? 'yarn-highlighted' : ''}
+              >
                 <path
+                  data-testid={`yarn-string-path-${str.id}`}
                   d={d}
                   fill="none"
                   stroke={str.color}
@@ -689,7 +766,7 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
                   strokeDasharray="3 5"
                   strokeLinecap="round"
                 />
-                {str.label && (
+                {str.label !== undefined && (
                   <foreignObject
                     x={midX - 65}
                     y={midY - 14}
@@ -702,7 +779,8 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
                       title="Click tag to edit label, or × to cut string"
                     >
                       <input
-                        value={str.label}
+                        aria-label={`String label ${str.id}`}
+                        value={str.label ?? ''}
                         onChange={(e) =>
                           dispatch(
                             caseActions.updateString(str.id, e.target.value)
@@ -711,6 +789,7 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
                       />
                       <button
                         type="button"
+                        aria-label="Cut String"
                         title="Cut String"
                         onClick={() => dispatch(caseActions.removeString(str.id))}
                       >
@@ -725,6 +804,7 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
 
           {stringDraft && (
             <path
+              data-testid="yarn-draft-path"
               d={
                 buildCatenaryPath(
                   stringDraft.startX,
