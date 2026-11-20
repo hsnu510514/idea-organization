@@ -14,7 +14,11 @@ import {
   CreditCard,
   Compass,
   Circle,
+  Square,
   Underline,
+  ArrowUpRight,
+  PenTool,
+  Eraser,
   MousePointer,
   Maximize2,
   Infinity as InfinityIcon,
@@ -124,6 +128,16 @@ export const WoodenPencilTray: React.FC<WoodenPencilTrayProps> = ({
           </button>
           <button
             type="button"
+            className={`tray-tool-btn ${state.activeTool === 'freehand' ? 'active' : ''}`}
+            aria-label="Freehand Pen"
+            onClick={() => onSetActiveTool('freehand')}
+            title="Draw freehand ink stroke"
+          >
+            <PenTool size={15} />
+            <span>Pen</span>
+          </button>
+          <button
+            type="button"
             className={`tray-tool-btn ${state.activeTool === 'circle' ? 'active' : ''}`}
             onClick={() => onSetActiveTool('circle')}
             title="Draw hand-sketched marker circle"
@@ -133,12 +147,39 @@ export const WoodenPencilTray: React.FC<WoodenPencilTrayProps> = ({
           </button>
           <button
             type="button"
+            className={`tray-tool-btn ${state.activeTool === 'rectangle' ? 'active' : ''}`}
+            onClick={() => onSetActiveTool('rectangle')}
+            title="Draw hand-sketched marker rectangle"
+          >
+            <Square size={15} />
+            <span>Rectangle</span>
+          </button>
+          <button
+            type="button"
             className={`tray-tool-btn ${state.activeTool === 'underline' ? 'active' : ''}`}
             onClick={() => onSetActiveTool('underline')}
             title="Underline evidence"
           >
             <Underline size={15} />
             <span>Underline</span>
+          </button>
+          <button
+            type="button"
+            className={`tray-tool-btn ${state.activeTool === 'arrow' ? 'active' : ''}`}
+            onClick={() => onSetActiveTool('arrow')}
+            title="Draw hand-sketched arrow"
+          >
+            <ArrowUpRight size={15} />
+            <span>Arrow</span>
+          </button>
+          <button
+            type="button"
+            className={`tray-tool-btn ${state.activeTool === 'eraser' ? 'active' : ''}`}
+            onClick={() => onSetActiveTool('eraser')}
+            title="Erase hand-drawn Annotations"
+          >
+            <Eraser size={15} />
+            <span>Eraser</span>
           </button>
 
           {/* Yarn spool color selector */}

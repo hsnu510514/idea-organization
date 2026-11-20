@@ -185,4 +185,127 @@ describe('caseStore — human skew generation & card spawning', () => {
     expect(findNearestPinOnCard(targetCard, { x: 135, y: 245 })?.id).toBe('pin-left');
     expect(findNearestPinOnCard(targetCard, { x: 265, y: 255 })?.id).toBe('pin-right');
   });
+
+  it('adds, selects, moves, resizes, and deletes Card-bound and Board-bound Annotations', () => {
+    let state = createInitialCaseState({
+      cards: [],
+      strings: [],
+      boardAnnotations: [],
+    });
+    state = caseReducer(
+      state,
+      caseActions.spawnCard({ id: 'card-1', kind: 'a4', x: 200, y: 100, width: 300, height: 350 })
+    );
+
+    // Add Card-bound Annotation (normalized 0..100 percentages)
+    state = caseReducer(
+      state,
+      caseActions.addAnnotation({
+        cardId: 'card-1',
+        annotation: {
+          id: 'ann-card-1',
+          target: 'card',
+          kind: 'circle',
+          color: '#A11D21',
+          strokeWidth: 2,
+          x: 15,
+          y: 25,
+          w: 40,
+          h: 20,
+        },
+      })
+    );
+    expect(state.cards[0].annotations).toHaveLength(1);
+    expect(state.cards[0].annotations[0]).toMatchObject({
+      id: 'ann-card-1',
+      target: 'card',
+      x: 15,
+      y: 25,
+      w: 40,
+      h: 20,
+    });
+
+    // Add Board-bound Annotation
+    state = caseReducer(
+      state,
+      caseActions.addAnnotation({
+        annotation: {
+          id: 'ann-board-1',
+          target: 'board',
+          kind: 'freehand',
+          color: '#235789',
+          strokeWidth: 3,
+          x: 500,
+          y: 300,
+          w: 120,
+          h: 80,
+          points: [
+            { x: 500, y: 300 },
+            { x: 560, y: 340 },
+            { x: 620, y: 380 },
+          ],
+        },
+      })
+    );
+    expect(state.boardAnnotations).toHaveLength(1);
+    expect(state.boardAnnotations[0].id).toBe('ann-board-1');
+
+    // Select Annotation
+    state = caseReducer(state, caseActions.selectAnnotation('ann-card-1'));
+    expect(state.selectedAnnotationId).toBe('ann-card-1');
+
+    // Move Card-bound Annotation
+    state = caseReducer(
+      state,
+      caseActions.moveAnnotation({
+        annotationId: 'ann-card-1',
+        cardId: 'card-1',
+        x: 22,
+        y: 34,
+      })
+    );
+    expect(state.cards[0].annotations[0].x).toBe(22);
+    expect(state.cards[0].annotations[0].y).toBe(34);
+
+    // Move Board-bound freehand Annotation (shifts bounding box and points)
+    state = caseReducer(
+      state,
+      caseActions.moveAnnotation({
+        annotationId: 'ann-board-1',
+        x: 520,
+        y: 310,
+      })
+    );
+    expect(state.boardAnnotations[0].x).toBe(520);
+    expect(state.boardAnnotations[0].y).toBe(310);
+    expect(state.boardAnnotations[0].points?.[0]).toEqual({ x: 520, y: 310 });
+
+    // Resize Card-bound Annotation
+    state = caseReducer(
+      state,
+      caseActions.resizeAnnotation({
+        annotationId: 'ann-card-1',
+        cardId: 'card-1',
+        w: 55,
+        h: 28,
+      })
+    );
+    expect(state.cards[0].annotations[0].w).toBe(55);
+    expect(state.cards[0].annotations[0].h).toBe(28);
+
+    // Delete Card-bound Annotation
+    state = caseReducer(
+      state,
+      caseActions.deleteAnnotation({ annotationId: 'ann-card-1', cardId: 'card-1' })
+    );
+    expect(state.cards[0].annotations).toHaveLength(0);
+    expect(state.selectedAnnotationId).toBeNull();
+
+    // Delete Board-bound Annotation
+    state = caseReducer(
+      state,
+      caseActions.deleteAnnotation({ annotationId: 'ann-board-1' })
+    );
+    expect(state.boardAnnotations).toHaveLength(0);
+  });
 });

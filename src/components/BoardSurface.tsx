@@ -1,9 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   CardData,
   CaseState,
-  FontStyle,
-  PaperColor,
   StringData,
 } from '../domain/types';
 import {
@@ -21,6 +19,14 @@ import {
   Trash2,
   RotateCw,
 } from 'lucide-react';
+import { FloatingPaperRibbon } from './FloatingPaperRibbon';
+import {
+  applyFormatToSelection,
+  RichTextEditor,
+  RichTextStylePatch,
+  SelectionRange,
+} from './RichTextEditor';
+import { AnnotationLayer } from './AnnotationLayer';
 
 export interface BoardSurfaceProps {
   state: CaseState;
@@ -77,6 +83,32 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
   } | null>(null);
 
   const [liveAnnouncement, setLiveAnnouncement] = useState<string>('');
+  const [textSelections, setTextSelections] = useState<
+    Record<string, SelectionRange | null>
+  >({});
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!state.selectedAnnotationId) return;
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')
+      ) {
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        dispatch(
+          caseActions.deleteAnnotation({
+            annotationId: state.selectedAnnotationId,
+          })
+        );
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.selectedAnnotationId, dispatch]);
 
   const getEventCoords = (e: React.PointerEvent | React.MouseEvent) => {
     const native = e.nativeEvent as unknown as Record<string, number | undefined>;
@@ -266,74 +298,56 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
     setStringDraft(null);
   };
 
+  const handleApplyTextFormat = (card: CardData, patch: RichTextStylePatch) => {
+    const activeRange = textSelections[card.id];
+    if (activeRange && activeRange.start !== activeRange.end) {
+      const formatted = applyFormatToSelection(
+        card.richContent,
+        card.plainText,
+        activeRange,
+        patch
+      );
+      dispatch(
+        caseActions.updateCard(card.id, {
+          richContent: formatted.richContent,
+          plainText: formatted.plainText,
+        })
+      );
+      return;
+    }
+
+    // No text highlighted: update Card default styles
+    const cardPatch: Partial<CardData> = {};
+    if (patch.fontStyle) cardPatch.defaultFontStyle = patch.fontStyle;
+    if (patch.fontSize) cardPatch.defaultFontSize = patch.fontSize;
+    if (patch.color) cardPatch.defaultTextColor = patch.color;
+    if (Object.keys(cardPatch).length > 0) {
+      dispatch(caseActions.updateCard(card.id, cardPatch));
+    }
+  };
+
   const defaultRenderCardChrome = (card: CardData, isSelected: boolean) => {
     if (!isSelected) return null;
-    const colors: PaperColor[] = ['yellow', 'cream', 'white', 'aged', 'pink', 'mint'];
-    const fonts: FontStyle[] = ['typewriter', 'handwriting', 'serif', 'sans'];
+    const activeRange = textSelections[card.id];
+    const hasTextSelection = Boolean(
+      activeRange && activeRange.start !== activeRange.end
+    );
 
     return (
-      <div
-        className="va-card-ribbon"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="va-ribbon-group">
-          {colors.map((col) => (
-            <button
-              key={col}
-              type="button"
-              className={`paper-swatch swatch-${col} ${
-                card.paperColor === col ? 'active' : ''
-              }`}
-              title={`Paper: ${col}`}
-              aria-label={`Paper color ${col}`}
-              onClick={() =>
-                dispatch(caseActions.updateCard(card.id, { paperColor: col }))
-              }
-            />
-          ))}
-        </div>
-
-        <span className="va-divider" />
-
-        <div className="va-ribbon-group">
-          {fonts.map((f) => (
-            <button
-              key={f}
-              type="button"
-              className={`va-font-btn ${card.defaultFontStyle === f ? 'active' : ''}`}
-              onClick={() =>
-                dispatch(caseActions.updateCard(card.id, { defaultFontStyle: f }))
-              }
-            >
-              {f === 'typewriter'
-                ? 'Type'
-                : f === 'handwriting'
-                ? 'Hand'
-                : f === 'serif'
-                ? 'Serif'
-                : 'Sans'}
-            </button>
-          ))}
-        </div>
-
-        <span className="va-divider" />
-
-        <div className="va-ribbon-group">
-          {(['sm', 'md', 'lg'] as const).map((sz) => (
-            <button
-              key={sz}
-              type="button"
-              className={`va-font-btn ${card.defaultFontSize === sz ? 'active' : ''}`}
-              onClick={() =>
-                dispatch(caseActions.updateCard(card.id, { defaultFontSize: sz }))
-              }
-            >
-              {sz.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </div>
+      <FloatingPaperRibbon
+        card={card}
+        activeTool={state.activeTool}
+        activeInkColor={state.activeInkColor}
+        activeStrokeWidth={state.activeStrokeWidth ?? 2}
+        hasTextSelection={hasTextSelection}
+        onChangePaperColor={(col) =>
+          dispatch(caseActions.updateCard(card.id, { paperColor: col }))
+        }
+        onApplyTextFormat={(patch) => handleApplyTextFormat(card, patch)}
+        onSetActiveTool={(tool) => dispatch(caseActions.setActiveTool(tool))}
+        onSetInkColor={(color) => dispatch(caseActions.setInkColor(color))}
+        onSetStrokeWidth={(width) => dispatch(caseActions.setStrokeWidth(width))}
+      />
     );
   };
 
@@ -587,20 +601,74 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
                   }
                 />
 
-                <textarea
-                  className="card-body-textarea"
-                  aria-label={`${card.title} content`}
-                  value={card.plainText}
-                  onChange={(e) =>
+                <RichTextEditor
+                  card={card}
+                  onChangeText={(plainText, richContent) =>
                     dispatch(
                       caseActions.updateCard(card.id, {
-                        plainText: e.target.value,
-                        richContent: e.target.value,
+                        plainText,
+                        richContent,
                       })
                     )
                   }
+                  onSelectionChange={(range) =>
+                    setTextSelections((prev) => ({
+                      ...prev,
+                      [card.id]: range,
+                    }))
+                  }
                 />
               </div>
+
+              {/* Card-Bound Hand-Drawn Annotations Layer (Normalized 0..100 percentages) */}
+              <AnnotationLayer
+                target="card"
+                cardId={card.id}
+                annotations={card.annotations}
+                activeTool={state.activeTool}
+                activeInkColor={state.activeInkColor}
+                activeStrokeWidth={state.activeStrokeWidth ?? 2}
+                selectedAnnotationId={state.selectedAnnotationId}
+                onAddAnnotation={(annotation) =>
+                  dispatch(
+                    caseActions.addAnnotation({
+                      cardId: card.id,
+                      annotation,
+                    })
+                  )
+                }
+                onSelectAnnotation={(annotationId) =>
+                  dispatch(caseActions.selectAnnotation(annotationId))
+                }
+                onMoveAnnotation={(annotationId, x, y) =>
+                  dispatch(
+                    caseActions.moveAnnotation({
+                      annotationId,
+                      cardId: card.id,
+                      x,
+                      y,
+                    })
+                  )
+                }
+                onResizeAnnotation={(annotationId, w, h) =>
+                  dispatch(
+                    caseActions.resizeAnnotation({
+                      annotationId,
+                      cardId: card.id,
+                      w,
+                      h,
+                    })
+                  )
+                }
+                onDeleteAnnotation={(annotationId) =>
+                  dispatch(
+                    caseActions.deleteAnnotation({
+                      annotationId,
+                      cardId: card.id,
+                    })
+                  )
+                }
+              />
 
               {/* Quick Corner Straighten Badge + Manual Rotation + Actions */}
               <div
@@ -821,6 +889,34 @@ export const BoardSurface: React.FC<BoardSurfaceProps> = ({
             />
           )}
         </svg>
+
+        {/* Board-Bound Hand-Drawn Annotations Layer */}
+        <AnnotationLayer
+          target="board"
+          annotations={state.boardAnnotations}
+          activeTool={state.activeTool}
+          activeInkColor={state.activeInkColor}
+          activeStrokeWidth={state.activeStrokeWidth ?? 2}
+          selectedAnnotationId={state.selectedAnnotationId}
+          zoom={state.zoom}
+          panX={state.panX}
+          panY={state.panY}
+          onAddAnnotation={(annotation) =>
+            dispatch(caseActions.addAnnotation({ annotation }))
+          }
+          onSelectAnnotation={(annotationId) =>
+            dispatch(caseActions.selectAnnotation(annotationId))
+          }
+          onMoveAnnotation={(annotationId, x, y) =>
+            dispatch(caseActions.moveAnnotation({ annotationId, x, y }))
+          }
+          onResizeAnnotation={(annotationId, w, h) =>
+            dispatch(caseActions.resizeAnnotation({ annotationId, w, h }))
+          }
+          onDeleteAnnotation={(annotationId) =>
+            dispatch(caseActions.deleteAnnotation({ annotationId }))
+          }
+        />
       </div>
     </div>
   );

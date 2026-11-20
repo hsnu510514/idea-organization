@@ -5,6 +5,7 @@ import {
   CardData,
   CardKind,
   CaseState,
+  FontSize,
   FontStyle,
   PaperColor,
   PinData,
@@ -272,10 +273,12 @@ export function createInitialCaseState(overrides?: Partial<CaseState>): CaseStat
     assets: [],
     boardAnnotations: [],
     selectedCardId: null,
+    selectedAnnotationId: null,
     hoveredCardId: null,
     activeTool: 'select',
     activeYarnColor: '#A11D21',
     activeInkColor: '#A11D21',
+    activeStrokeWidth: 2,
     ...overrides,
   };
 }
@@ -287,7 +290,7 @@ interface CardPreset {
   height: number;
   paperColor: PaperColor;
   defaultFontStyle: FontStyle;
-  defaultFontSize: 'sm' | 'md' | 'lg';
+  defaultFontSize: FontSize;
   defaultTextColor: string;
   pinColor: PinData['color'];
 }
@@ -386,7 +389,7 @@ export interface SpawnCardOptions {
   skew?: number;
   paperColor?: PaperColor;
   defaultFontStyle?: FontStyle;
-  defaultFontSize?: 'sm' | 'md' | 'lg';
+  defaultFontSize?: FontSize;
   defaultTextColor?: string;
   assetId?: string;
   imageCaption?: string;
@@ -420,12 +423,24 @@ export type CaseAction =
   | { type: 'SET_ACTIVE_TOOL'; payload: ActiveTool }
   | { type: 'SET_YARN_COLOR'; payload: YarnColor }
   | { type: 'SET_INK_COLOR'; payload: string }
+  | { type: 'SET_STROKE_WIDTH'; payload: number }
   | { type: 'ADD_PIN'; payload: { cardId: string; pin?: Partial<PinData> } }
   | { type: 'MOVE_PIN'; payload: { cardId: string; pinId: string; rx: number; ry: number } }
   | { type: 'ADD_STRING'; payload: StringData }
   | { type: 'UPDATE_STRING'; payload: { stringId: string; label: string } }
   | { type: 'REMOVE_STRING'; payload: string }
-  | { type: 'ADD_ASSET'; payload: AssetRecord };
+  | { type: 'ADD_ASSET'; payload: AssetRecord }
+  | { type: 'SELECT_ANNOTATION'; payload: string | null }
+  | { type: 'ADD_ANNOTATION'; payload: { cardId?: string; annotation: AnnotationData } }
+  | {
+      type: 'MOVE_ANNOTATION';
+      payload: { annotationId: string; cardId?: string; x: number; y: number };
+    }
+  | {
+      type: 'RESIZE_ANNOTATION';
+      payload: { annotationId: string; cardId?: string; x?: number; y?: number; w: number; h: number };
+    }
+  | { type: 'DELETE_ANNOTATION'; payload: { annotationId: string; cardId?: string } };
 
 export const caseActions = {
   loadCase: (payload: CaseState): CaseAction => ({ type: 'LOAD_CASE', payload }),
@@ -528,6 +543,42 @@ export const caseActions = {
   addAsset: (asset: AssetRecord): CaseAction => ({
     type: 'ADD_ASSET',
     payload: asset,
+  }),
+  setStrokeWidth: (width: number): CaseAction => ({
+    type: 'SET_STROKE_WIDTH',
+    payload: width,
+  }),
+  selectAnnotation: (annotationId: string | null): CaseAction => ({
+    type: 'SELECT_ANNOTATION',
+    payload: annotationId,
+  }),
+  addAnnotation: (payload: { cardId?: string; annotation: AnnotationData }): CaseAction => ({
+    type: 'ADD_ANNOTATION',
+    payload,
+  }),
+  moveAnnotation: (payload: {
+    annotationId: string;
+    cardId?: string;
+    x: number;
+    y: number;
+  }): CaseAction => ({
+    type: 'MOVE_ANNOTATION',
+    payload,
+  }),
+  resizeAnnotation: (payload: {
+    annotationId: string;
+    cardId?: string;
+    x?: number;
+    y?: number;
+    w: number;
+    h: number;
+  }): CaseAction => ({
+    type: 'RESIZE_ANNOTATION',
+    payload,
+  }),
+  deleteAnnotation: (payload: { annotationId: string; cardId?: string }): CaseAction => ({
+    type: 'DELETE_ANNOTATION',
+    payload,
   }),
 };
 
@@ -845,6 +896,151 @@ export function caseReducer(state: CaseState, action: CaseAction): CaseState {
         ...state,
         assets: [...state.assets, action.payload],
       };
+
+    case 'SET_STROKE_WIDTH':
+      return {
+        ...state,
+        activeStrokeWidth: Math.max(1, Math.min(12, action.payload)),
+      };
+
+    case 'SELECT_ANNOTATION':
+      return {
+        ...state,
+        selectedAnnotationId: action.payload,
+      };
+
+    case 'ADD_ANNOTATION': {
+      const { cardId, annotation } = action.payload;
+      if (cardId) {
+        return {
+          ...state,
+          selectedAnnotationId: annotation.id,
+          cards: state.cards.map((c) =>
+            c.id === cardId
+              ? { ...c, annotations: [...c.annotations, annotation] }
+              : c
+          ),
+        };
+      }
+      return {
+        ...state,
+        selectedAnnotationId: annotation.id,
+        boardAnnotations: [...state.boardAnnotations, annotation],
+      };
+    }
+
+    case 'MOVE_ANNOTATION': {
+      const { annotationId, cardId, x, y } = action.payload;
+      const shiftAnnotation = (ann: AnnotationData): AnnotationData => {
+        if (ann.id !== annotationId) return ann;
+        const dx = x - ann.x;
+        const dy = y - ann.y;
+        return {
+          ...ann,
+          x: Number(x.toFixed(2)),
+          y: Number(y.toFixed(2)),
+          points: ann.points
+            ? ann.points.map((pt) => ({
+                x: Number((pt.x + dx).toFixed(2)),
+                y: Number((pt.y + dy).toFixed(2)),
+              }))
+            : undefined,
+        };
+      };
+
+      if (cardId) {
+        return {
+          ...state,
+          cards: state.cards.map((c) =>
+            c.id === cardId
+              ? { ...c, annotations: c.annotations.map(shiftAnnotation) }
+              : c
+          ),
+        };
+      }
+      return {
+        ...state,
+        cards: state.cards.map((c) => ({
+          ...c,
+          annotations: c.annotations.map(shiftAnnotation),
+        })),
+        boardAnnotations: state.boardAnnotations.map(shiftAnnotation),
+      };
+    }
+
+    case 'RESIZE_ANNOTATION': {
+      const { annotationId, cardId, x, y, w, h } = action.payload;
+      const scaleAnnotation = (ann: AnnotationData): AnnotationData => {
+        if (ann.id !== annotationId) return ann;
+        const nextW = Math.max(2, Number(w.toFixed(2)));
+        const nextH = Math.max(2, Number(h.toFixed(2)));
+        const nextX = x !== undefined ? Number(x.toFixed(2)) : ann.x;
+        const nextY = y !== undefined ? Number(y.toFixed(2)) : ann.y;
+        const scaleX = ann.w > 0 ? nextW / ann.w : 1;
+        const scaleY = ann.h > 0 ? nextH / ann.h : 1;
+        return {
+          ...ann,
+          x: nextX,
+          y: nextY,
+          w: nextW,
+          h: nextH,
+          points: ann.points
+            ? ann.points.map((pt) => ({
+                x: Number((nextX + (pt.x - ann.x) * scaleX).toFixed(2)),
+                y: Number((nextY + (pt.y - ann.y) * scaleY).toFixed(2)),
+              }))
+            : undefined,
+        };
+      };
+
+      if (cardId) {
+        return {
+          ...state,
+          cards: state.cards.map((c) =>
+            c.id === cardId
+              ? { ...c, annotations: c.annotations.map(scaleAnnotation) }
+              : c
+          ),
+        };
+      }
+      return {
+        ...state,
+        cards: state.cards.map((c) => ({
+          ...c,
+          annotations: c.annotations.map(scaleAnnotation),
+        })),
+        boardAnnotations: state.boardAnnotations.map(scaleAnnotation),
+      };
+    }
+
+    case 'DELETE_ANNOTATION': {
+      const { annotationId, cardId } = action.payload;
+      const nextSelected =
+        state.selectedAnnotationId === annotationId ? null : state.selectedAnnotationId;
+      if (cardId) {
+        return {
+          ...state,
+          selectedAnnotationId: nextSelected,
+          cards: state.cards.map((c) =>
+            c.id === cardId
+              ? {
+                  ...c,
+                  annotations: c.annotations.filter((a) => a.id !== annotationId),
+                }
+              : c
+          ),
+        };
+      }
+      return {
+        ...state,
+        selectedAnnotationId: nextSelected,
+        cards: state.cards.map((c) => ({
+          ...c,
+          annotations: c.annotations.filter((a) => a.id !== annotationId),
+        })),
+        boardAnnotations: state.boardAnnotations.filter((a) => a.id !== annotationId),
+      };
+    }
 
     default:
       return state;
