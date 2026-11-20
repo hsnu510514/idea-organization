@@ -1,0 +1,680 @@
+:root {
+  --cork-base: #7E5634;
+  --cork-dark: #583B22;
+  --mahogany-trim: #2C1A11;
+  --mahogany-edge: #422719;
+  --crimson-yarn: #A11D21;
+  --ochre-folder: #D8B57C;
+  --ochre-dark: #B58F52;
+  --paper-ivory: #FBF7EE;
+  --paper-yellow: #F3DF7D;
+  --paper-pink: #F2C6C2;
+  --paper-mint: #CBE6D4;
+  --paper-aged: #E4D4B4;
+  --paper-white: #FFFFFF;
+  --ink-charcoal: #1E1A17;
+  --brass-gold: #C89D46;
+
+  --font-typewriter: 'Special Elite', 'Courier New', monospace;
+  --font-hand: 'Caveat', cursive;
+  --font-serif: 'Cormorant Garamond', Georgia, serif;
+  --font-sans: 'Work Sans', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #19130E;
+  font-family: var(--font-sans);
+  color: var(--ink-charcoal);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   SHARED BOARD VIEWPORT & CORK SURFACE
+============================================================================ */
+
+.variant-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.board-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: grab;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(64, 42, 24, 0.35), rgba(14, 10, 7, 0.94)),
+    repeating-linear-gradient(
+      90deg,
+      #1D150F 0px,
+      #1D150F 44px,
+      #16100B 45px,
+      #1A120D 90px
+    );
+}
+
+.board-viewport:active {
+  cursor: grabbing;
+}
+
+.board-plane {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.cork-surface {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background-color: var(--cork-base);
+  background-image:
+    radial-gradient(rgba(45, 25, 10, 0.28) 1.2px, transparent 1.2px),
+    radial-gradient(rgba(235, 195, 145, 0.16) 1px, transparent 1px),
+    radial-gradient(circle at 50% 40%, rgba(255, 224, 178, 0.14), rgba(38, 22, 10, 0.38));
+  background-size: 14px 14px, 21px 21px, 100% 100%;
+  background-position: 0 0, 7px 7px, 0 0;
+}
+
+.cork-surface.framed-cork {
+  border: 22px solid var(--mahogany-trim);
+  border-radius: 6px;
+  box-shadow:
+    inset 0 0 28px rgba(15, 8, 3, 0.72),
+    0 28px 70px rgba(0, 0, 0, 0.85),
+    0 0 0 2px var(--mahogany-edge);
+}
+
+.cork-surface.infinite-cork {
+  box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.65);
+}
+
+.frame-brass-plate {
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 14px;
+  background: linear-gradient(90deg, #9F7933, #E0BA6B, #9A742E);
+  color: #1F1508;
+  font-family: var(--font-typewriter);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  border-radius: 2px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.plate-dim {
+  opacity: 0.75;
+}
+
+.out-of-bounds-banner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #2C1A11;
+  color: #F8E8C8;
+  border: 1px solid var(--brass-gold);
+  border-radius: 4px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  font-size: 13px;
+}
+
+.out-of-bounds-banner button {
+  padding: 4px 10px;
+  background: var(--brass-gold);
+  color: #1E1408;
+  border: none;
+  border-radius: 3px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ============================================================================
+   CARDS & PHYSICAL MEDIA TYPES
+============================================================================ */
+
+.board-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  border-radius: 2px;
+  box-shadow:
+    0 6px 16px rgba(15, 9, 4, 0.42),
+    0 1px 3px rgba(15, 9, 4, 0.32);
+  transition:
+    box-shadow 0.16s ease,
+    opacity 0.18s ease,
+    filter 0.18s ease;
+  cursor: default;
+}
+
+/* Paper colors */
+.paper-yellow {
+  background: linear-gradient(165deg, #F8E88E 0%, #ECD569 100%);
+}
+.paper-cream {
+  background: linear-gradient(175deg, #FCF8EE 0%, #EFE6D1 100%);
+}
+.paper-white {
+  background: #FAFAFA;
+}
+.paper-aged {
+  background:
+    radial-gradient(circle at 85% 15%, rgba(160, 122, 71, 0.22), transparent 55%),
+    linear-gradient(160deg, #E7D8B9 0%, #D7C39B 100%);
+}
+.paper-pink {
+  background: linear-gradient(165deg, #F7D4D0 0%, #E9B8B3 100%);
+}
+.paper-mint {
+  background: linear-gradient(165deg, #D8EFE0 0%, #BEE0CA 100%);
+}
+
+/* Lined Index Card */
+.board-card.kind-index-card {
+  background-image:
+    linear-gradient(to bottom, transparent 29px, rgba(185, 65, 65, 0.45) 30px, transparent 31px),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 23px,
+      rgba(56, 118, 178, 0.22) 24px
+    );
+}
+
+/* Newspaper Clipping torn border */
+.board-card.kind-newspaper {
+  border-top: 2px dashed rgba(60, 45, 25, 0.35);
+  border-bottom: 2px dashed rgba(60, 45, 25, 0.35);
+}
+
+/* Polaroid Photo frame */
+.board-card.kind-photo {
+  background: #FAF8F2;
+  padding-bottom: 8px;
+}
+
+/* Hover-Peek & Click-to-Front behavior */
+.board-card.is-hovered-peek {
+  box-shadow:
+    0 18px 36px rgba(0, 0, 0, 0.62),
+    0 0 0 2px rgba(212, 154, 42, 0.85);
+}
+
+.board-card.is-selected {
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.58),
+    0 0 0 2px #A11D21;
+}
+
+.board-card.is-dimmed-unconnected {
+  opacity: 0.48;
+  filter: saturate(0.65);
+}
+
+/* Fonts */
+.font-typewriter input,
+.font-typewriter textarea,
+.font-typewriter pre {
+  font-family: var(--font-typewriter);
+}
+.font-handwriting input,
+.font-handwriting textarea {
+  font-family: var(--font-hand);
+}
+.font-serif input,
+.font-serif textarea {
+  font-family: var(--font-serif);
+}
+.font-sans input,
+.font-sans textarea {
+  font-family: var(--font-sans);
+}
+
+.size-sm .card-body-textarea {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.size-md .card-body-textarea {
+  font-size: 15px;
+  line-height: 1.4;
+}
+.size-lg .card-body-textarea {
+  font-size: 19px;
+  line-height: 1.3;
+}
+
+/* Accessible Drag Handle */
+.card-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 22px;
+  padding: 0 8px;
+  background: rgba(35, 24, 14, 0.07);
+  border: none;
+  border-bottom: 1px solid rgba(35, 24, 14, 0.08);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  color: rgba(30, 26, 23, 0.65);
+  font-size: 10px;
+}
+
+.card-drag-handle.dragging {
+  cursor: grabbing;
+  background: rgba(161, 29, 33, 0.14);
+}
+
+.card-kind-pill {
+  font-family: var(--font-typewriter);
+  letter-spacing: 0.04em;
+}
+
+.drag-grip-dots {
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+/* Card Inner Content */
+.card-inner-body {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 8px 11px 10px;
+  overflow: hidden;
+}
+
+.card-title-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: inherit;
+  padding: 2px 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.card-title-input:focus,
+.card-body-textarea:focus,
+.polaroid-caption-input:focus {
+  outline: 1px dashed rgba(161, 29, 33, 0.5);
+}
+
+.card-body-textarea {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  resize: none;
+  padding: 2px 4px;
+}
+
+/* Thumbtack Pins */
+.thumbtack-pin {
+  position: absolute;
+  z-index: 20;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.thumbtack-pin .pin-head {
+  display: block;
+  width: 15px;
+  height: 15px;
+  margin: 2px auto;
+  border-radius: 50%;
+  box-shadow:
+    inset -2px -2px 4px rgba(0, 0, 0, 0.55),
+    inset 2px 2px 4px rgba(255, 255, 255, 0.45),
+    0 3px 5px rgba(0, 0, 0, 0.55);
+  transition: transform 0.12s ease;
+}
+
+.thumbtack-pin:hover .pin-head {
+  transform: scale(1.22);
+}
+
+.pin-red .pin-head {
+  background: radial-gradient(circle at 35% 35%, #FF5E62, #9B1418);
+}
+.pin-brass .pin-head {
+  background: radial-gradient(circle at 35% 35%, #FFE299, #9B7124);
+}
+.pin-blue .pin-head {
+  background: radial-gradient(circle at 35% 35%, #66A6FF, #163E73);
+}
+.pin-black .pin-head {
+  background: radial-gradient(circle at 35% 35%, #555D66, #14171A);
+}
+
+/* Quick Corner Action Bar on Card */
+.card-quick-actions {
+  position: absolute;
+  top: -13px;
+  right: 6px;
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.board-card:hover .card-quick-actions,
+.board-card.is-selected .card-quick-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.card-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  background: #241710;
+  color: #F6E7CB;
+  border: 1px solid rgba(200, 157, 70, 0.45);
+  border-radius: 3px;
+  font-size: 10.5px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.card-quick-btn:hover {
+  background: #3E271B;
+}
+
+.card-quick-btn.danger:hover {
+  background: #A11D21;
+}
+
+.card-rotate-control {
+  gap: 3px;
+}
+
+.card-rotate-input {
+  width: 38px;
+  background: transparent;
+  color: #F6E7CB;
+  border: none;
+  font-size: 10px;
+  text-align: right;
+  padding: 0;
+}
+
+/* Resize Handle */
+.card-resize-corner {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 15;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(
+    135deg,
+    transparent 50%,
+    rgba(40, 28, 18, 0.35) 50%
+  );
+}
+
+/* Yarn Strings Layer */
+.yarn-strings-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 400;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.yarn-tape-tag {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  background: #EFE1BA;
+  border: 1px solid rgba(90, 68, 34, 0.4);
+  padding: 1px 4px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.38);
+  transform: rotate(-1.5deg);
+}
+
+.yarn-tape-tag input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--font-hand);
+  font-size: 14px;
+  color: #251B12;
+}
+
+.yarn-tape-tag button {
+  border: none;
+  background: transparent;
+  color: #8A1C1F;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+/* Shared Swatches */
+.paper-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.paper-swatch.active {
+  outline: 2px solid #A11D21;
+  outline-offset: 1px;
+}
+.swatch-yellow { background: #F3DF7D; }
+.swatch-cream { background: #FBF7EE; }
+.swatch-white { background: #FFFFFF; }
+.swatch-aged { background: #DFC9A1; }
+.swatch-pink { background: #F2C6C2; }
+.swatch-mint { background: #CBE6D4; }
+
+.yarn-spool-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+.yarn-spool-dot.active {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 2px var(--brass-gold);
+}
+
+/* ============================================================================
+   VARIANT A — WOODEN PENCIL TRAY + FLOATING CARD RIBBON
+============================================================================ */
+
+.va-card-ribbon {
+  position: absolute;
+  bottom: -38px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: #271911;
+  color: #F6E9CE;
+  border: 1px solid var(--brass-gold);
+  border-radius: 4px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+}
+
+.va-ribbon-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.va-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.va-font-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #F5E6C8;
+  border: none;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.va-font-btn.active {
+  background: var(--brass-gold);
+  color: #1F140A;
+  font-weight: 600;
+}
+
+/* Bottom Wooden Pencil Tray */
+.va-wooden-tray-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 600;
+  transition: transform 0.22s ease;
+}
+
+.va-wooden-tray-wrap.auto-hide {
+  transform: translate(-50%, 62%);
+}
+
+.va-wooden-tray-wrap.auto-hide:hover {
+  transform: translate(-50%, 0);
+}
+
+.va-wooden-tray {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  background: linear-gradient(180deg, #3C2417 0%, #24140C 100%);
+  border: 2px solid #5B3824;
+  border-radius: 8px;
+  box-shadow:
+    inset 0 2px 4px rgba(255, 215, 160, 0.14),
+    0 14px 32px rgba(0, 0, 0, 0.78);
+  color: #F5E5C9;
+}
+
+.tray-well {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(12, 7, 4, 0.45);
+  border-radius: 5px;
+  border: 1px solid rgba(255, 205, 140, 0.12);
+}
+
+.tray-label {
+  font-family: var(--font-typewriter);
+  font-size: 10px;
+  color: var(--brass-gold);
+  margin-right: 4px;
+}
+
+.tray-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  background: rgba(255, 240, 215, 0.08);
+  color: #F5E6CA;
+  border: 1px solid rgba(255, 220, 170, 0.16);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tray-tool-btn:hover {
+  background: rgba(212, 154, 42, 0.25);
+  border-color: var(--brass-gold);
+}
+
+.tray-tool-btn.active {
+  background: var(--brass-gold);
+  color: #1D1206;
+  font-weight: 600;
+}
+
+.yarn-spools {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+}
+
+.tray-lock-btn {
+  padding: 4px 8px;
+  background: transparent;
+  color: #D7BA85;
+  border: 1px dashed rgba(215, 186, 133, 0.4);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
