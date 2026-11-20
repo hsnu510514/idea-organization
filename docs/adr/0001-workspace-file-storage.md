@@ -1,0 +1,3 @@
+# Hybrid Workspace File Storage
+
+We store each Case as a human-readable directory (`<case-slug>/board.json` and `<case-slug>/assets/`) rather than in browser IndexedDB or a cloud database, accessed through a pluggable Workspace storage adapter: a local Vite filesystem middleware when running locally, the browser File System Access API (`showDirectoryPicker`) when running in Chromium on a static host, and `.case.zip` import/export as a universal fallback. This avoids browser storage quotas on large PDFs, prevents duplicating asset binaries when multiple Cards or Clippings reference the same PDF, and lets open-source users either try the web demo immediately or keep their cases as plain files on disk.
