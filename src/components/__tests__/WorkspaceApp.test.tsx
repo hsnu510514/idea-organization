@@ -1245,3 +1245,437 @@ describe('WorkspaceApp — Ticket 4 Photo Prints, Real PDF Stacks (pdfjs-dist), 
     });
   });
 });
+
+describe('WorkspaceApp — Ticket 5 Right Manila Case Drawer, Search/Filter & Stash/Restore with Remembered Strings integration seam', () => {
+  it('toggles the Right-Edge Manila File Tab showing CASE DRAWER (<count>), filters stashed and on-board Cards by live search query and CardKind filter pills, and pans/focuses the Board when clicking an on-board Card in All Case Items', () => {
+    const storage = createInMemoryWorkspaceAdapter();
+    const initialCase = createInitialCaseState({
+      panX: 0,
+      panY: 0,
+      zoom: 1,
+      cards: [
+        {
+          id: 'card-a4-1',
+          kind: 'a4',
+          title: 'Autopsy Forensics Summary',
+          richContent: 'Trace alkaloid residue detected on brass teacup rim.',
+          plainText: 'Trace alkaloid residue detected on brass teacup rim.',
+          x: 400,
+          y: 200,
+          width: 300,
+          height: 360,
+          skew: 1.5,
+          zIndex: 2,
+          stashed: false,
+          paperColor: 'cream',
+          defaultFontStyle: 'typewriter',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p1', rx: 50, ry: 8, color: 'brass' }],
+          annotations: [],
+        },
+        {
+          id: 'card-sticky-2',
+          kind: 'sticky',
+          title: 'Gate B Padlock Key',
+          richContent: 'Night guard claims duplicate brass key existed.',
+          plainText: 'Night guard claims duplicate brass key existed.',
+          x: 800,
+          y: 300,
+          width: 210,
+          height: 190,
+          skew: -2.5,
+          zIndex: 1,
+          stashed: false,
+          paperColor: 'yellow',
+          defaultFontStyle: 'handwriting',
+          defaultFontSize: 'lg',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p2', rx: 50, ry: 9, color: 'red' }],
+          annotations: [],
+        },
+        {
+          id: 'card-news-stashed',
+          kind: 'newspaper',
+          title: 'Harbor Chronicle Strike Notice',
+          richContent: 'Unmanifested night shipments continued at Pier 14.',
+          plainText: 'Unmanifested night shipments continued at Pier 14.',
+          x: 150,
+          y: 120,
+          width: 260,
+          height: 230,
+          skew: 3.0,
+          zIndex: 3,
+          stashed: true,
+          paperColor: 'aged',
+          defaultFontStyle: 'serif',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p3', rx: 50, ry: 9, color: 'black' }],
+          annotations: [],
+        },
+      ],
+      strings: [],
+    });
+
+    render(<WorkspaceApp storage={storage} initialCase={initialCase} />);
+
+    // Right-Edge Manila File Tab displays stashed Card count: CASE DRAWER (1)
+    const manilaTab = screen.getByRole('button', {
+      name: /CASE DRAWER \(1\)/i,
+    });
+    const drawerAside = screen.getByTestId('case-drawer');
+    expect(drawerAside.className).not.toContain('is-open');
+
+    // Slide open the Case Drawer
+    fireEvent.click(manilaTab);
+    expect(drawerAside.className).toContain('is-open');
+
+    const stashedSection = within(drawerAside).getByTestId('case-drawer-stashed-section');
+    const allItemsSection = within(drawerAside).getByTestId('case-drawer-all-items-section');
+
+    // Initially 1 stashed Card in Stashed in Folder, and 3 total Cards in All Case Items
+    expect(within(stashedSection).getByText('Harbor Chronicle Strike Notice')).toBeInTheDocument();
+    expect(within(allItemsSection).getAllByTestId(/^drawer-all-item-/)).toHaveLength(3);
+
+    // Filter by CardKind pill 'sticky' -> only Gate B Padlock Key matches
+    fireEvent.click(
+      within(drawerAside).getByRole('button', { name: /Filter kind sticky/i })
+    );
+    expect(within(allItemsSection).getAllByTestId(/^drawer-all-item-/)).toHaveLength(1);
+    expect(within(allItemsSection).getByText('Gate B Padlock Key')).toBeInTheDocument();
+    expect(
+      within(stashedSection).queryByText('Harbor Chronicle Strike Notice')
+    ).not.toBeInTheDocument();
+
+    // Filter by CardKind pill 'newspaper' -> stashed newspaper card matches
+    fireEvent.click(
+      within(drawerAside).getByRole('button', { name: /Filter kind newspaper/i })
+    );
+    expect(within(stashedSection).getByText('Harbor Chronicle Strike Notice')).toBeInTheDocument();
+    expect(within(allItemsSection).getAllByTestId(/^drawer-all-item-/)).toHaveLength(1);
+
+    // Reset kind filter to 'all'
+    fireEvent.click(
+      within(drawerAside).getByRole('button', { name: /Filter kind all/i })
+    );
+    expect(within(allItemsSection).getAllByTestId(/^drawer-all-item-/)).toHaveLength(3);
+
+    // Live search by plainText substring "alkaloid residue"
+    const searchInput = within(drawerAside).getByPlaceholderText(
+      /Search all Cards/i
+    );
+    fireEvent.change(searchInput, { target: { value: 'alkaloid residue' } });
+    expect(within(allItemsSection).getAllByTestId(/^drawer-all-item-/)).toHaveLength(1);
+    expect(
+      within(allItemsSection).getByText('Autopsy Forensics Summary')
+    ).toBeInTheDocument();
+
+    // Clear search query
+    fireEvent.change(searchInput, { target: { value: '' } });
+    expect(within(allItemsSection).getAllByTestId(/^drawer-all-item-/)).toHaveLength(3);
+
+    // Click on-board Card 'Gate B Padlock Key' (x=800, y=300, w=210, h=190 -> center=(905, 395)) in All Case Items
+    const stickyAllItem = within(allItemsSection).getByTestId(
+      'drawer-all-item-card-sticky-2'
+    );
+    fireEvent.click(within(stickyAllItem).getByTestId('drawer-focus-card-card-sticky-2'));
+
+    // Card is selected, promoted to top zIndex (3 -> 4), and Board pan centers on it
+    const boardCardSticky = screen.getByTestId('board-card-card-sticky-2');
+    expect(boardCardSticky.className).toContain('is-selected');
+    expect(boardCardSticky).toHaveStyle({ zIndex: 4 });
+
+    const expectedPanX = Math.round(window.innerWidth / 2 - 905);
+    const expectedPanY = Math.round(window.innerHeight / 2 - 395);
+    const boardPlane = screen.getByTestId('board-plane');
+    expect(boardPlane.style.transform).toContain(
+      `translate3d(${expectedPanX}px, ${expectedPanY}px, 0)`
+    );
+  });
+
+  it('stashes a Card with 3 connected Strings (hiding the Card and its 3 Strings on the Board while preserving StringData in state and showing "3 String(s) remembered"), and restores all 3 Strings when clicking Pin to Board', () => {
+    const storage = createInMemoryWorkspaceAdapter();
+    const initialCase = createInitialCaseState({
+      cards: [
+        {
+          id: 'card-hub',
+          kind: 'a4',
+          title: 'Suspect Victor Vance',
+          richContent: 'Central investigation target',
+          plainText: 'Central investigation target',
+          x: 400,
+          y: 200,
+          width: 300,
+          height: 320,
+          skew: 0,
+          zIndex: 2,
+          stashed: false,
+          paperColor: 'cream',
+          defaultFontStyle: 'typewriter',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-hub', rx: 50, ry: 10, color: 'brass' }],
+          annotations: [],
+        },
+        {
+          id: 'card-n1',
+          kind: 'sticky',
+          title: 'Clue 1: Teacup',
+          richContent: 'Brass teacup',
+          plainText: 'Brass teacup',
+          x: 100,
+          y: 100,
+          width: 200,
+          height: 180,
+          skew: 0,
+          zIndex: 1,
+          stashed: false,
+          paperColor: 'yellow',
+          defaultFontStyle: 'handwriting',
+          defaultFontSize: 'lg',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-1', rx: 50, ry: 10, color: 'red' }],
+          annotations: [],
+        },
+        {
+          id: 'card-n2',
+          kind: 'index-card',
+          title: 'Clue 2: Pocket Watch',
+          richContent: 'Stopped at 02:20 AM',
+          plainText: 'Stopped at 02:20 AM',
+          x: 780,
+          y: 100,
+          width: 250,
+          height: 180,
+          skew: 0,
+          zIndex: 3,
+          stashed: false,
+          paperColor: 'white',
+          defaultFontStyle: 'handwriting',
+          defaultFontSize: 'md',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-2', rx: 50, ry: 10, color: 'blue' }],
+          annotations: [],
+        },
+        {
+          id: 'card-n3',
+          kind: 'newspaper',
+          title: 'Clue 3: Tidal Silt',
+          richContent: 'Pier 14 mud sample',
+          plainText: 'Pier 14 mud sample',
+          x: 780,
+          y: 380,
+          width: 250,
+          height: 220,
+          skew: 0,
+          zIndex: 4,
+          stashed: false,
+          paperColor: 'aged',
+          defaultFontStyle: 'serif',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-3', rx: 50, ry: 10, color: 'black' }],
+          annotations: [],
+        },
+      ],
+      strings: [
+        {
+          id: 'str-1',
+          fromCardId: 'card-hub',
+          fromPinId: 'p-hub',
+          toCardId: 'card-n1',
+          toPinId: 'p-1',
+          color: '#A11D21',
+          label: 'Teacup link',
+        },
+        {
+          id: 'str-2',
+          fromCardId: 'card-hub',
+          fromPinId: 'p-hub',
+          toCardId: 'card-n2',
+          toPinId: 'p-2',
+          color: '#D49A2A',
+          label: 'Watch link',
+        },
+        {
+          id: 'str-3',
+          fromCardId: 'card-n3',
+          fromPinId: 'p-3',
+          toCardId: 'card-hub',
+          toPinId: 'p-hub',
+          color: '#235789',
+          label: 'Silt link',
+        },
+      ],
+    });
+
+    render(<WorkspaceApp storage={storage} initialCase={initialCase} />);
+
+    // Initially all 4 Cards and all 3 Strings are rendered on the Board
+    expect(screen.getAllByTestId(/^board-card-/)).toHaveLength(4);
+    expect(screen.getAllByTestId(/^yarn-string-path-/)).toHaveLength(3);
+    expect(
+      screen.getByRole('button', { name: /CASE DRAWER \(0\)/i })
+    ).toBeInTheDocument();
+
+    // Click Stash on card-hub on the Board
+    const hubCardEl = screen.getByTestId('board-card-card-hub');
+    const stashBtnOnCard = within(hubCardEl).getByRole('button', {
+      name: /Stash Card in Case Drawer/i,
+    });
+    fireEvent.click(stashBtnOnCard);
+
+    // card-hub and its 3 connected Strings immediately hide from the Board
+    expect(screen.queryByTestId('board-card-card-hub')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId(/^board-card-/)).toHaveLength(3);
+    expect(screen.queryAllByTestId(/^yarn-string-path-/)).toHaveLength(0);
+
+    // Manila File Tab updates to CASE DRAWER (1)
+    const manilaTab = screen.getByRole('button', { name: /CASE DRAWER \(1\)/i });
+    fireEvent.click(manilaTab);
+
+    const drawerAside = screen.getByTestId('case-drawer');
+    const stashedSection = within(drawerAside).getByTestId(
+      'case-drawer-stashed-section'
+    );
+
+    // Stashed in Folder section shows Suspect Victor Vance with "3 String(s) remembered"
+    expect(
+      within(stashedSection).getByText('Suspect Victor Vance')
+    ).toBeInTheDocument();
+    expect(
+      within(stashedSection).getByText(/3 String\(s\) remembered/i)
+    ).toBeInTheDocument();
+
+    // Click "Pin to Board" to restore the Card
+    const pinToBoardBtn = within(stashedSection).getByRole('button', {
+      name: /Pin to Board/i,
+    });
+    fireEvent.click(pinToBoardBtn);
+
+    // Card is back on the Board at top zIndex (4 -> 5), and all 3 Strings immediately reappear
+    const restoredHubEl = screen.getByTestId('board-card-card-hub');
+    expect(restoredHubEl).toBeInTheDocument();
+    expect(restoredHubEl).toHaveStyle({ zIndex: 5 });
+    expect(screen.getAllByTestId(/^yarn-string-path-/)).toHaveLength(3);
+    expect(
+      screen.getByRole('button', { name: /CASE DRAWER \(0\)/i })
+    ).toBeInTheDocument();
+
+    // Also verify stashing directly from the Case Drawer's All Case Items list
+    const allItemsSection = within(drawerAside).getByTestId(
+      'case-drawer-all-items-section'
+    );
+    const n1AllItem = within(allItemsSection).getByTestId(
+      'drawer-all-item-card-n1'
+    );
+    fireEvent.click(within(n1AllItem).getByRole('button', { name: /Stash/i }));
+
+    // card-n1 is stashed, so only 2 Strings remain visible on the Board (str-2 and str-3)
+    expect(screen.queryByTestId('board-card-card-n1')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId(/^yarn-string-path-/)).toHaveLength(2);
+    expect(
+      within(stashedSection).getByText(/1 String\(s\) remembered/i)
+    ).toBeInTheDocument();
+  });
+
+  it('lists deduplicated PDF and image AssetRecords in the Uploaded Assets shelf and spawns a second PDF Stack (and additional Photo Print) from an existing Asset without re-uploading', async () => {
+    const storage = createInMemoryWorkspaceAdapter();
+    const initialCase = createInitialCaseState({
+      cards: [],
+      strings: [],
+      assets: [
+        {
+          id: 'asset-pdf-1',
+          filename: 'harbor-manifest.pdf',
+          mimeType: 'application/pdf',
+          relativePath: 'assets/harbor-manifest.pdf',
+          pageCount: 6,
+        },
+        {
+          id: 'asset-img-1',
+          filename: 'pier14-crime-scene.png',
+          mimeType: 'image/png',
+          relativePath: 'assets/pier14-crime-scene.png',
+        },
+      ],
+    });
+
+    render(<WorkspaceApp storage={storage} initialCase={initialCase} />);
+
+    // Open Case Drawer
+    fireEvent.click(screen.getByRole('button', { name: /CASE DRAWER \(0\)/i }));
+
+    const drawerAside = screen.getByTestId('case-drawer');
+    const assetsSection = within(drawerAside).getByTestId(
+      'case-drawer-assets-section'
+    );
+
+    expect(
+      within(assetsSection).getByText('harbor-manifest.pdf')
+    ).toBeInTheDocument();
+    expect(
+      within(assetsSection).getByText('pier14-crime-scene.png')
+    ).toBeInTheDocument();
+
+    // 1. Click "Spawn Photo Print" on the existing image Asset -> pins a Photo Print Card on the Board
+    const imgAssetRow = within(assetsSection).getByTestId(
+      'drawer-asset-item-asset-img-1'
+    );
+    fireEvent.click(
+      within(imgAssetRow).getByRole('button', { name: /Pin Photo Print/i })
+    );
+
+    expect(screen.getAllByTestId(/^board-card-/)).toHaveLength(1);
+    expect(screen.getAllByTestId(/^board-card-/)[0]).toHaveAttribute(
+      'data-card-kind',
+      'photo'
+    );
+
+    // 2. Click "Pin PDF Stack" on the existing PDF Asset -> opens PDF Import Sheet for that Asset (or pins a PDF Stack), allowing a second PDF Stack to be created without re-uploading
+    const pdfAssetRow = within(assetsSection).getByTestId(
+      'drawer-asset-item-asset-pdf-1'
+    );
+    fireEvent.click(
+      within(pdfAssetRow).getByRole('button', { name: /Pin PDF Stack/i })
+    );
+
+    const importSheet = await screen.findByTestId('pdf-import-sheet');
+    expect(
+      within(importSheet).getByText(/harbor-manifest\.pdf/i)
+    ).toBeInTheDocument();
+    expect(
+      within(importSheet).getByText(/6 pages detected/i)
+    ).toBeInTheDocument();
+
+    // Confirm pinning first PDF Stack from the shelf
+    fireEvent.click(
+      within(importSheet).getByRole('button', { name: /Pin PDF Stack/i })
+    );
+
+    // Spawn a second PDF Stack from the exact same Uploaded Assets shelf item
+    fireEvent.click(
+      within(pdfAssetRow).getByRole('button', { name: /Pin PDF Stack/i })
+    );
+    const secondImportSheet = await screen.findByTestId('pdf-import-sheet');
+    fireEvent.click(
+      within(secondImportSheet).getByRole('button', { name: /Pin PDF Stack/i })
+    );
+
+    const allBoardCards = screen.getAllByTestId(/^board-card-/);
+    const pdfStackCards = allBoardCards.filter(
+      (el) => el.getAttribute('data-card-kind') === 'pdf-stack'
+    );
+    expect(pdfStackCards).toHaveLength(2);
+
+    const savedCase = await storage.loadCase(initialCase.caseSlug);
+    expect(savedCase?.assets).toHaveLength(2);
+    const savedPdfStacks = savedCase!.cards.filter(
+      (c) => c.kind === 'pdf-stack'
+    );
+    expect(savedPdfStacks).toHaveLength(2);
+    expect(savedPdfStacks[0].assetId).toBe('asset-pdf-1');
+    expect(savedPdfStacks[1].assetId).toBe('asset-pdf-1');
+  });
+});

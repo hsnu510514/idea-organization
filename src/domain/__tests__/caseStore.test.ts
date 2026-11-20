@@ -412,4 +412,151 @@ describe('caseStore — human skew generation & card spawning', () => {
       toCardId: 'snip-clip-1',
     });
   });
+
+  it('stashes and restores Cards while preserving attached Strings in state, filters Cards by search query and CardKind, counts remembered Strings, and focuses/pans to an on-board Card', () => {
+    let state = createInitialCaseState({
+      panX: 0,
+      panY: 0,
+      zoom: 1,
+      cards: [
+        {
+          id: 'c-hub',
+          kind: 'a4',
+          title: 'Central Suspect Dossier',
+          richContent: 'Victor Vance harbor movements',
+          plainText: 'Victor Vance harbor movements',
+          x: 400,
+          y: 200,
+          width: 300,
+          height: 300,
+          skew: 0,
+          zIndex: 1,
+          stashed: false,
+          paperColor: 'cream',
+          defaultFontStyle: 'typewriter',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-hub', rx: 50, ry: 10, color: 'brass' }],
+          annotations: [],
+        },
+        {
+          id: 'c-1',
+          kind: 'sticky',
+          title: 'Alibi Note',
+          richContent: 'Seen at Gate B',
+          plainText: 'Seen at Gate B',
+          x: 100,
+          y: 100,
+          width: 200,
+          height: 180,
+          skew: 0,
+          zIndex: 2,
+          stashed: false,
+          paperColor: 'yellow',
+          defaultFontStyle: 'handwriting',
+          defaultFontSize: 'lg',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-1', rx: 50, ry: 10, color: 'red' }],
+          annotations: [],
+        },
+        {
+          id: 'c-2',
+          kind: 'newspaper',
+          title: 'Harbor Chronicle',
+          richContent: 'Strike enters third week at Pier 14',
+          plainText: 'Strike enters third week at Pier 14',
+          x: 800,
+          y: 120,
+          width: 260,
+          height: 220,
+          skew: 0,
+          zIndex: 3,
+          stashed: false,
+          paperColor: 'aged',
+          defaultFontStyle: 'serif',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-2', rx: 50, ry: 10, color: 'black' }],
+          annotations: [],
+        },
+        {
+          id: 'c-3',
+          kind: 'index-card',
+          title: 'Diner Witness Clara',
+          richContent: 'Manila envelope left on counter',
+          plainText: 'Manila envelope left on counter',
+          x: 150,
+          y: 450,
+          width: 250,
+          height: 180,
+          skew: 0,
+          zIndex: 4,
+          stashed: false,
+          paperColor: 'white',
+          defaultFontStyle: 'handwriting',
+          defaultFontSize: 'md',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-3', rx: 50, ry: 10, color: 'blue' }],
+          annotations: [],
+        },
+      ],
+      strings: [
+        {
+          id: 's-1',
+          fromCardId: 'c-hub',
+          fromPinId: 'p-hub',
+          toCardId: 'c-1',
+          toPinId: 'p-1',
+          color: '#A11D21',
+          label: 'Link 1',
+        },
+        {
+          id: 's-2',
+          fromCardId: 'c-hub',
+          fromPinId: 'p-hub',
+          toCardId: 'c-2',
+          toPinId: 'p-2',
+          color: '#D49A2A',
+          label: 'Link 2',
+        },
+        {
+          id: 's-3',
+          fromCardId: 'c-3',
+          fromPinId: 'p-3',
+          toCardId: 'c-hub',
+          toPinId: 'p-hub',
+          color: '#235789',
+          label: 'Link 3',
+        },
+      ],
+    });
+
+    // Stash c-hub which has 3 connected Strings
+    state = caseReducer(state, caseActions.stashCard('c-hub'));
+    const stashedHub = state.cards.find((c) => c.id === 'c-hub')!;
+    expect(stashedHub.stashed).toBe(true);
+    // All 3 StringData records remain intact in state.strings
+    expect(state.strings).toHaveLength(3);
+
+    // Restore c-hub -> stashed = false, zIndex promoted above max (4 -> 5), selectedCardId = 'c-hub'
+    state = caseReducer(state, caseActions.restoreCard('c-hub'));
+    const restoredHub = state.cards.find((c) => c.id === 'c-hub')!;
+    expect(restoredHub.stashed).toBe(false);
+    expect(restoredHub.zIndex).toBe(5);
+    expect(state.selectedCardId).toBe('c-hub');
+
+    // Focus and pan to c-2 (x=800, y=120, w=260, h=220 -> center=(930, 230)) in a 1200x800 viewport
+    state = caseReducer(
+      state,
+      caseActions.focusCard({
+        cardId: 'c-2',
+        viewportWidth: 1200,
+        viewportHeight: 800,
+      })
+    );
+    expect(state.selectedCardId).toBe('c-2');
+    expect(state.cards.find((c) => c.id === 'c-2')?.zIndex).toBe(6);
+    expect(state.panX).toBe(Math.round(1200 / 2 - 930 * 1));
+    expect(state.panY).toBe(Math.round(800 / 2 - 230 * 1));
+  });
 });

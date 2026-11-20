@@ -417,6 +417,10 @@ export type CaseAction =
   | { type: 'SELECT_CARD'; payload: string | null }
   | { type: 'HOVER_CARD'; payload: string | null }
   | { type: 'BRING_TO_FRONT'; payload: string }
+  | {
+      type: 'FOCUS_CARD';
+      payload: { cardId: string; viewportWidth?: number; viewportHeight?: number };
+    }
   | { type: 'STASH_CARD'; payload: string }
   | { type: 'RESTORE_CARD'; payload: string }
   | { type: 'DELETE_CARD'; payload: string }
@@ -509,6 +513,14 @@ export const caseActions = {
   bringToFront: (cardId: string): CaseAction => ({
     type: 'BRING_TO_FRONT',
     payload: cardId,
+  }),
+  focusCard: (payload: {
+    cardId: string;
+    viewportWidth?: number;
+    viewportHeight?: number;
+  }): CaseAction => ({
+    type: 'FOCUS_CARD',
+    payload,
   }),
   stashCard: (cardId: string): CaseAction => ({
     type: 'STASH_CARD',
@@ -801,6 +813,25 @@ export function caseReducer(state: CaseState, action: CaseAction): CaseState {
         selectedCardId: action.payload,
         cards: state.cards.map((c) =>
           c.id === action.payload ? { ...c, zIndex: maxZ + 1 } : c
+        ),
+      };
+    }
+
+    case 'FOCUS_CARD': {
+      const target = state.cards.find((c) => c.id === action.payload.cardId);
+      if (!target || target.stashed) return state;
+      const maxZ = state.cards.reduce((m, c) => Math.max(m, c.zIndex), 1);
+      const vw = action.payload.viewportWidth ?? 1200;
+      const vh = action.payload.viewportHeight ?? 800;
+      const cx = target.x + target.width / 2;
+      const cy = target.y + target.height / 2;
+      return {
+        ...state,
+        selectedCardId: target.id,
+        panX: Math.round(vw / 2 - cx * state.zoom),
+        panY: Math.round(vh / 2 - cy * state.zoom),
+        cards: state.cards.map((c) =>
+          c.id === target.id ? { ...c, zIndex: maxZ + 1 } : c
         ),
       };
     }

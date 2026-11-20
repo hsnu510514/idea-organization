@@ -10,6 +10,7 @@ import { BoardSurface } from './BoardSurface';
 import { WoodenPencilTray } from './WoodenPencilTray';
 import { PdfImportSheet } from './PdfImportSheet';
 import { inspectPdfPageCount } from './PdfPageCanvas';
+import { CaseDrawer } from './CaseDrawer';
 
 export interface WorkspaceAppProps {
   storage?: WorkspaceStorageAdapter;
@@ -86,6 +87,31 @@ export const WorkspaceApp: React.FC<WorkspaceAppProps> = ({
   return (
     <div className="variant-shell variant-a">
       <BoardSurface state={state} dispatch={dispatch} assetUrls={assetUrls} />
+      <CaseDrawer
+        state={state}
+        onStashCard={(cardId) => dispatch(caseActions.stashCard(cardId))}
+        onRestoreCard={(cardId) => dispatch(caseActions.restoreCard(cardId))}
+        onFocusCard={(cardId) =>
+          dispatch(
+            caseActions.focusCard({
+              cardId,
+              viewportWidth: window.innerWidth || 1200,
+              viewportHeight: window.innerHeight || 800,
+            })
+          )
+        }
+        onSpawnPhotoFromAsset={(asset) =>
+          dispatch(
+            caseActions.spawnCard({
+              kind: 'photo',
+              title: asset.filename,
+              assetId: asset.id,
+              imageCaption: asset.filename,
+            })
+          )
+        }
+        onPinPdfStackFromAsset={(asset) => setPendingPdfImport(asset)}
+      />
       {pendingPdfImport && (
         <PdfImportSheet
           asset={pendingPdfImport}
