@@ -558,5 +558,12 @@ describe('caseStore — human skew generation & card spawning', () => {
     expect(state.cards.find((c) => c.id === 'c-2')?.zIndex).toBe(6);
     expect(state.panX).toBe(Math.round(1200 / 2 - 930 * 1));
     expect(state.panY).toBe(Math.round(800 / 2 - 230 * 1));
+
+    // Rename Case title
+    state = caseReducer(
+      state,
+      caseActions.setCaseTitle('CASE #510 — SOUTH DOCK CONSPIRACY')
+    );
+    expect(state.caseTitle).toBe('CASE #510 — SOUTH DOCK CONSPIRACY');
   });
 });

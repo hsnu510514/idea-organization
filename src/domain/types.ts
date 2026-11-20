@@ -133,6 +133,8 @@ export interface CaseSummary {
 
 export interface WorkspaceStorageAdapter {
   listCases(): Promise<CaseSummary[]>;
+  /** Optional synchronous snapshot of known Case summaries for initial UI rendering */
+  peekCases?(): CaseSummary[];
   loadCase(caseSlug: string): Promise<CaseState | null>;
   saveCase(caseSlug: string, boardData: CaseState): Promise<void>;
   deleteCase(caseSlug: string): Promise<void>;

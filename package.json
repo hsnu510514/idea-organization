@@ -10,6 +10,7 @@
     "test": "vitest"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "lucide-react": "^0.469.0",
     "pdfjs-dist": "^6.5.438",
     "react": "^19.0.0",
@@ -19,6 +20,7 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",

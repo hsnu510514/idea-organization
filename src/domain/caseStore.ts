@@ -401,6 +401,7 @@ export interface SpawnCardOptions {
 
 export type CaseAction =
   | { type: 'LOAD_CASE'; payload: CaseState }
+  | { type: 'SET_CASE_TITLE'; payload: string }
   | { type: 'SET_MODE'; payload: 'bounded' | 'infinite' }
   | { type: 'TOGGLE_MODE' }
   | { type: 'SET_PAN'; payload: { panX: number; panY: number } }
@@ -462,6 +463,10 @@ export type CaseAction =
 
 export const caseActions = {
   loadCase: (payload: CaseState): CaseAction => ({ type: 'LOAD_CASE', payload }),
+  setCaseTitle: (title: string): CaseAction => ({
+    type: 'SET_CASE_TITLE',
+    payload: title,
+  }),
   setMode: (mode: 'bounded' | 'infinite'): CaseAction => ({
     type: 'SET_MODE',
     payload: mode,
@@ -632,6 +637,12 @@ export function caseReducer(state: CaseState, action: CaseAction): CaseState {
   switch (action.type) {
     case 'LOAD_CASE':
       return { ...action.payload };
+
+    case 'SET_CASE_TITLE':
+      return {
+        ...state,
+        caseTitle: action.payload,
+      };
 
     case 'SET_MODE':
       return {

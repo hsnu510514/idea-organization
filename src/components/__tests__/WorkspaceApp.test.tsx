@@ -1679,3 +1679,363 @@ describe('WorkspaceApp — Ticket 5 Right Manila Case Drawer, Search/Filter & St
     expect(savedPdfStacks[1].assetId).toBe('asset-pdf-1');
   });
 });
+
+describe('WorkspaceApp — Ticket 6 Multi-Case Hybrid Workspace Storage (board.json + assets/) & .case.zip Import/Export integration seam', () => {
+  it('creates, switches between, renames, and deletes Cases with confirmation via the Detective Case Switcher while auto-saving each Case cleanly', async () => {
+    const caseA = createInitialCaseState({
+      caseSlug: 'case-409-pier-14',
+      caseTitle: 'CASE #409 — PIER 14 HARBOR INVESTIGATION',
+      cards: [
+        {
+          id: 'card-pier-clue',
+          kind: 'sticky',
+          title: 'Pier 14 Padlock Key',
+          richContent: 'Duplicate brass key found.',
+          plainText: 'Duplicate brass key found.',
+          x: 150,
+          y: 120,
+          width: 210,
+          height: 190,
+          skew: -2.0,
+          zIndex: 1,
+          stashed: false,
+          paperColor: 'yellow',
+          defaultFontStyle: 'handwriting',
+          defaultFontSize: 'lg',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-a1', rx: 50, ry: 10, color: 'red' }],
+          annotations: [],
+        },
+      ],
+      strings: [],
+    });
+
+    const caseB = createInitialCaseState({
+      caseSlug: 'case-512-clocktower',
+      caseTitle: 'CASE #512 — CLOCKTOWER HEIST',
+      cards: [
+        {
+          id: 'card-clock-clue',
+          kind: 'a4',
+          title: 'Clocktower Gear Blueprint',
+          richContent: 'Missing escapement wheel.',
+          plainText: 'Missing escapement wheel.',
+          x: 240,
+          y: 160,
+          width: 300,
+          height: 340,
+          skew: 1.5,
+          zIndex: 1,
+          stashed: false,
+          paperColor: 'cream',
+          defaultFontStyle: 'typewriter',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'p-b1', rx: 50, ry: 8, color: 'brass' }],
+          annotations: [],
+        },
+      ],
+      strings: [],
+    });
+
+    const storage = createInMemoryWorkspaceAdapter([caseA, caseB]);
+
+    render(<WorkspaceApp storage={storage} initialCase={caseA} />);
+
+    // Initially Case A is active and its Card is rendered
+    expect(screen.getByTestId('board-card-card-pier-clue')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('board-card-card-clock-clue')
+    ).not.toBeInTheDocument();
+
+    const switcherBar = screen.getByTestId('case-switcher-bar');
+    const caseSelect = within(switcherBar).getByLabelText(
+      /Switch active Case/i
+    ) as HTMLSelectElement;
+
+    await waitFor(() => {
+      expect(caseSelect.options.length).toBe(2);
+    });
+
+    // 1. Switch to existing Case B
+    fireEvent.change(caseSelect, { target: { value: 'case-512-clocktower' } });
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('board-card-card-clock-clue')
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId('board-card-card-pier-clue')
+    ).not.toBeInTheDocument();
+
+    // 2. Rename Case B via the Case Title input
+    const titleInput = within(switcherBar).getByLabelText(
+      /Active Case title/i
+    ) as HTMLInputElement;
+    expect(titleInput.value).toBe('CASE #512 — CLOCKTOWER HEIST');
+
+    fireEvent.change(titleInput, {
+      target: { value: 'CASE #512 — MIDNIGHT BELL HEIST' },
+    });
+
+    await waitFor(async () => {
+      const savedB = await storage.loadCase('case-512-clocktower');
+      expect(savedB?.caseTitle).toBe('CASE #512 — MIDNIGHT BELL HEIST');
+    });
+
+    // 3. Create a New Case (+ New Case)
+    fireEvent.click(
+      within(switcherBar).getByRole('button', { name: /New Case/i })
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('board-card-card-clock-clue')
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.queryAllByTestId(/^board-card-/)).toHaveLength(0);
+
+    const allCasesAfterCreate = await storage.listCases();
+    expect(allCasesAfterCreate).toHaveLength(3);
+
+    // Spawn a Sticky Note in the new Case
+    fireEvent.click(screen.getByRole('button', { name: /Sticky Note/i }));
+    expect(screen.getAllByTestId(/^board-card-/)).toHaveLength(1);
+
+    // 4. Delete the newly created Case with confirmation
+    fireEvent.click(
+      within(switcherBar).getByRole('button', { name: /Delete Case/i })
+    );
+    const confirmDeleteBtn = within(switcherBar).getByRole('button', {
+      name: /Confirm Delete Case/i,
+    });
+    fireEvent.click(confirmDeleteBtn);
+
+    // Falls back to remaining Case and storage now has 2 Cases
+    await waitFor(async () => {
+      const remaining = await storage.listCases();
+      expect(remaining).toHaveLength(2);
+    });
+  });
+
+  it('exports a full Case (board.json + deduplicated PDF/image assets/) to a .case.zip archive and imports a .case.zip archive via the Detective Case Switcher UI restoring all Cards, PDF Stacks, Clippings, Pins, Strings, and Annotations', async () => {
+    const sourceStorage = createInMemoryWorkspaceAdapter([]);
+
+    const syntheticPdf = [
+      '%PDF-1.4',
+      '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+      '2 0 obj << /Type /Pages /Count 4 >> endobj',
+      '3 0 obj << /Type /Page /Parent 2 0 R >> endobj',
+      '4 0 obj << /Type /Page /Parent 2 0 R >> endobj',
+      '5 0 obj << /Type /Page /Parent 2 0 R >> endobj',
+      '6 0 obj << /Type /Page /Parent 2 0 R >> endobj',
+      '%%EOF',
+    ].join('\n');
+
+    const pdfFile = new File([syntheticPdf], 'dock-ledger.pdf', {
+      type: 'application/pdf',
+    });
+    const pdfAsset = await sourceStorage.saveAsset(
+      'case-888-ledger',
+      pdfFile,
+      'dock-ledger.pdf'
+    );
+
+    const richCase = createInitialCaseState({
+      caseSlug: 'case-888-ledger',
+      caseTitle: 'CASE #888 — SMUGGLER LEDGER',
+      assets: [{ ...pdfAsset, pageCount: 4 }],
+      cards: [
+        {
+          id: 'card-stack-888',
+          kind: 'pdf-stack',
+          title: 'dock-ledger.pdf',
+          richContent: '',
+          plainText: '',
+          x: 160,
+          y: 120,
+          width: 290,
+          height: 260,
+          skew: 2.0,
+          zIndex: 2,
+          stashed: false,
+          paperColor: 'white',
+          defaultFontStyle: 'typewriter',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'pin-s1', rx: 50, ry: 9, color: 'brass' }],
+          annotations: [
+            {
+              id: 'ann-s1',
+              target: 'card',
+              kind: 'circle',
+              color: '#A11D21',
+              strokeWidth: 2,
+              x: 20,
+              y: 25,
+              w: 40,
+              h: 30,
+            },
+          ],
+          assetId: pdfAsset.id,
+          pdfPageRange: { start: 1, end: 4 },
+          currentPageIndex: 1,
+        },
+        {
+          id: 'card-clip-888',
+          kind: 'clipping',
+          title: 'dock-ledger.pdf — Page 2 Clipping',
+          richContent: 'Cropped manifest row',
+          plainText: 'Cropped manifest row',
+          x: 520,
+          y: 140,
+          width: 245,
+          height: 195,
+          skew: -1.5,
+          zIndex: 3,
+          stashed: false,
+          paperColor: 'cream',
+          defaultFontStyle: 'typewriter',
+          defaultFontSize: 'sm',
+          defaultTextColor: '#1E1A17',
+          pins: [{ id: 'pin-c1', rx: 50, ry: 9, color: 'red' }],
+          annotations: [],
+          assetId: pdfAsset.id,
+          sourcePageNumber: 2,
+          cropRect: { x: 0.1, y: 0.2, w: 0.6, h: 0.4 },
+        },
+      ],
+      strings: [
+        {
+          id: 'str-888',
+          fromCardId: 'card-stack-888',
+          fromPinId: 'pin-s1',
+          toCardId: 'card-clip-888',
+          toPinId: 'pin-c1',
+          color: '#A11D21',
+          label: 'Pg 2 Snip',
+        },
+      ],
+    });
+
+    await sourceStorage.saveCase('case-888-ledger', richCase);
+    const zipBlob = await sourceStorage.exportCaseZip('case-888-ledger');
+    const zipFile = new File([zipBlob], 'case-888-ledger.case.zip', {
+      type: 'application/zip',
+    });
+
+    // Now render a clean WorkspaceApp with an empty default Case and import the .case.zip via UI
+    const destStorage = createInMemoryWorkspaceAdapter([
+      createInitialCaseState({
+        caseSlug: 'case-000-empty',
+        caseTitle: 'EMPTY DESK',
+        cards: [],
+        strings: [],
+      }),
+    ]);
+
+    render(
+      <WorkspaceApp
+        storage={destStorage}
+        initialCase={createInitialCaseState({
+          caseSlug: 'case-000-empty',
+          caseTitle: 'EMPTY DESK',
+          cards: [],
+          strings: [],
+        })}
+      />
+    );
+
+    expect(screen.queryAllByTestId(/^board-card-/)).toHaveLength(0);
+
+    const switcherBar = screen.getByTestId('case-switcher-bar');
+
+    // Trigger Export .case.zip button on current case to verify export UI action works
+    fireEvent.click(
+      within(switcherBar).getByRole('button', { name: /Export \.case\.zip/i })
+    );
+
+    // Import case-888-ledger.case.zip via the file input
+    const importInput = within(switcherBar).getByTestId(
+      'case-zip-import-input'
+    ) as HTMLInputElement;
+    fireEvent.change(importInput, { target: { files: [zipFile] } });
+
+    // Imported Case becomes active on the Board with its PDF Stack, Clipping, String, and Annotation intact
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('board-card-card-stack-888')
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('board-card-card-clip-888')).toBeInTheDocument();
+    expect(screen.getByTestId('yarn-string-path-str-888')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('annotation-item-ann-s1')
+    ).toBeInTheDocument();
+
+    const titleInput = within(switcherBar).getByLabelText(
+      /Active Case title/i
+    ) as HTMLInputElement;
+    expect(titleInput.value).toBe('CASE #888 — SMUGGLER LEDGER');
+  });
+
+  it('shows the "Mount Local Workspace Folder" button when window.showDirectoryPicker is available and mounts a File System Access directory handle cleanly', async () => {
+    const win = window as unknown as {
+      showDirectoryPicker?: () => Promise<unknown>;
+    };
+
+    const files = new Map<string, Uint8Array>();
+    const makeDir = (dirName: string) => ({
+      kind: 'directory' as const,
+      name: dirName,
+      async getDirectoryHandle(sub: string) {
+        return makeDir(sub);
+      },
+      async getFileHandle(fileName: string) {
+        return {
+          kind: 'file' as const,
+          name: fileName,
+          async getFile() {
+            return new File([files.get(fileName) ?? new Uint8Array()], fileName);
+          },
+          async createWritable() {
+            return {
+              async write(data: string | Uint8Array) {
+                files.set(
+                  fileName,
+                  typeof data === 'string'
+                    ? new TextEncoder().encode(data)
+                    : data
+                );
+              },
+              async close() {},
+            };
+          },
+        };
+      },
+      async removeEntry() {},
+      async *entries() {},
+    });
+
+    win.showDirectoryPicker = async () => makeDir('mounted-folder');
+
+    try {
+      const storage = createInMemoryWorkspaceAdapter();
+      render(<WorkspaceApp storage={storage} />);
+
+      const mountBtn = screen.getByRole('button', {
+        name: /Mount Local Workspace Folder/i,
+      });
+      expect(mountBtn).toBeInTheDocument();
+
+      fireEvent.click(mountBtn);
+
+      await waitFor(() => {
+        expect(files.has('board.json')).toBe(true);
+      });
+    } finally {
+      delete win.showDirectoryPicker;
+    }
+  });
+});
