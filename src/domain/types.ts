@@ -9,6 +9,7 @@ export type CardKind =
 
 export type PaperColor = 'yellow' | 'pink' | 'mint' | 'cream' | 'aged' | 'white';
 export type FontStyle = 'typewriter' | 'handwriting' | 'serif' | 'sans';
+export type FontSize = 'sm' | 'md' | 'lg' | 'xl';
 
 export interface AssetRecord {
   id: string;
@@ -66,7 +67,7 @@ export interface CardData {
   stashed: boolean;
   paperColor: PaperColor;
   defaultFontStyle: FontStyle;
-  defaultFontSize: 'sm' | 'md' | 'lg';
+  defaultFontSize: FontSize;
   defaultTextColor: string;
   pins: PinData[];
   annotations: AnnotationData[];
@@ -116,10 +117,12 @@ export interface CaseState {
   assets: AssetRecord[];
   boardAnnotations: AnnotationData[];
   selectedCardId: string | null;
+  selectedAnnotationId?: string | null;
   hoveredCardId: string | null;
   activeTool: ActiveTool;
   activeYarnColor: YarnColor;
   activeInkColor: string;
+  activeStrokeWidth?: number;
 }
 
 export interface CaseSummary {
